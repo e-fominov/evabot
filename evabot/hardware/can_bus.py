@@ -11,6 +11,7 @@ Features:
 """
 
 import atexit
+import subprocess
 import threading
 import time
 from typing import Dict, Tuple, Optional, List

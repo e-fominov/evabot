@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evabot"
+version = "0.1.0"
+description = "Educational robotics library for kids - from single motor to autonomous maze solving"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Evgeny Fominov", email = "e.fominov@gmail.com"}
+]
+keywords = ["robotics", "education", "mecanum", "servo", "can-bus", "learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Topic :: Education",
+    "Topic :: Scientific/Engineering :: Robotics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "python-can>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "python-dotenv>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-timeout>=2.1.0",
+]
+remote = [
+    "python-dotenv>=1.0.0",
+    "paramiko>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/e-fominov/evabot"
+Repository = "https://github.com/e-fominov/evabot"
+Documentation = "https://github.com/e-fominov/evabot/blob/main/README.md"
+"Bug Tracker" = "https://github.com/e-fominov/evabot/issues"
+
+[project.scripts]
+robot = "evabot.tools.remote_run:main"
+
+[tool.setuptools]
+packages = ["evabot", "evabot.components", "evabot.components.motors",
+            "evabot.components.drive", "evabot.hardware", "evabot.behaviors",
+            "evabot.tools"]
+
+[tool.setuptools.package-data]
+evabot = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/integration"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+timeout = 300
