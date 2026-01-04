@@ -186,7 +186,7 @@ evabot/
 
 ## Development Status
 
-### ✅ Completed (Phase 1)
+### ✅ Completed (Phase 1 & 2)
 - ✅ Motor control (Servo42D with CAN bus)
 - ✅ Position control (move by distance, move to position)
 - ✅ Speed control (continuous running)
@@ -194,14 +194,13 @@ evabot/
 - ✅ Integration tests (single + four motor suites)
 - ✅ Educational lessons (Levels 1-3)
 - ✅ Remote development tools
+- ✅ MecanumDrive system with odometry
+- ✅ RPLidar C1 sensor (360° laser scanning)
 
-### 🚧 In Progress (Phase 2)
-- MecanumDrive system
-- Odometry tracking
-- Drive patterns and movements
+### 🚧 In Progress (Phase 3)
+- Orbbec Camera integration (RGB + Depth)
 
-### 📋 Planned (Phase 3+)
-- Sensors (RPLidar C1, Orbbec Camera)
+### 📋 Planned (Phase 4+)
 - Autonomous behaviors and state machines
 - SLAM and mapping
 - Navigation and path planning

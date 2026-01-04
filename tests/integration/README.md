@@ -15,6 +15,7 @@ Unlike unit tests, these tests require actual hardware and verify:
 - Servo42D motors connected to CAN bus
 - CAN interface configured (`can0`)
 - Motors free to move (not mechanically constrained)
+- RPLidar C1 connected to `/dev/ttyUSB0` (for lidar tests)
 
 ### Software
 - EvaBot library installed (`pip install -e .`)
@@ -82,6 +83,59 @@ TEST SUMMARY
 
 Result: 6/6 tests passed
 ✓ ALL TESTS PASSED
+```
+
+### RPLidar C1 Test
+
+Tests lidar scanning and coordinate system alignment:
+
+```bash
+cd /home/fm/work/evabot
+python tests/integration/test_lidar.py
+```
+
+**What it tests:**
+1. Lidar initialization and connection
+2. 360° scan data acquisition
+3. Directional readings (front, right, back, left)
+4. Coordinate system (CW rotation: 0°=front, 90°=right, 180°=back, 270°=left)
+5. Angular range queries
+6. Obstacle detection logic
+7. Real-time continuous scanning
+
+**Expected output:**
+```
+============================================================
+RPLidar C1 Standalone Test
+============================================================
+
+Creating RPLidarC1...
+Starting lidar...
+
+Basic Distance Readings:
+  Coordinate System: CW rotation (0°=front, 90°=right, 180°=back, 270°=left)
+
+  Front (0°):   0.65m
+  Right (90°):  0.53m
+  Back (180°):  0.59m
+  Left (270°):  0.84m
+
+Full Scan Statistics:
+  Total points: 282
+  Min distance: 0.30m
+  Max distance: 4.58m
+  Coverage:     78.3%
+
+✓ Test Complete!
+```
+
+### Four Motors Test
+
+Tests multiple motors coordination (coming soon):
+
+```bash
+cd /home/fm/work/evabot
+python tests/integration/test_four_motors.py
 ```
 
 ## Test Details
@@ -211,6 +265,120 @@ def test_my_feature():
         return False
 ```
 
+### Lidar Not Responding
+
+**Problem**: `Failed to connect to lidar` or `No such file or directory: /dev/ttyUSB0`
+
+- Check lidar is connected via USB
+- Verify USB device appears:
+  ```bash
+  ls -l /dev/ttyUSB*
+  ```
+- Check permissions:
+  ```bash
+  sudo chmod 666 /dev/ttyUSB0
+  # Or add user to dialout group:
+  sudo usermod -a -G dialout $USER
+  # Then logout and login
+  ```
+- Verify baud rate is 460800 (RPLidar C1)
+
+**Problem**: "Incorrect descriptor starting bytes"
+
+- Already fixed with automatic buffer clearing
+- If still occurs, manually cleanup:
+  ```python
+  from evabot.hardware import LidarDevice
+  LidarDevice.cleanup_all()
+  ```
+
+**Problem**: No scan data or sparse coverage
+
+- Wait 2-3 seconds for first full scan to complete
+- RPLidar C1 typically provides 75-80% coverage (normal)
+- Use averaged readings (`.front`, `.right`, etc.) for robustness
+
+### Orbbec Camera Test
+
+Tests RGB and Depth camera capture:
+
+```bash
+cd /home/fm/work/evabot
+python tests/integration/test_camera.py
+```
+
+**What it tests:**
+1. Camera initialization and connection
+2. RGB frame capture (640x480)
+3. Depth frame capture (640x480)
+4. Depth at specific pixel coordinates
+5. Atomic RGB+Depth frame retrieval
+6. Continuous capture monitoring
+7. OpenCV visualization (optional)
+
+**Expected output:**
+```
+============================================================
+Orbbec Camera Standalone Test
+============================================================
+
+Creating OrbbecCamera...
+Starting camera...
+
+Basic Frame Retrieval:
+  ✅ RGB image: (480, 640, 3) dtype=uint8
+     Range: 0-255
+  ✅ Depth image: (480, 640) dtype=uint16
+     Range: 0-4500 mm
+  ✅ Depth (meters): (480, 640) dtype=float32
+     Range: 0.30-4.50 m
+     Mean:  1.25 m
+
+Depth at Specific Points:
+  center   (320, 240): 1.25 m
+  left     (160, 240): 1.45 m
+  right    (480, 240): 1.10 m
+  top      (320, 120): 1.30 m
+  bottom   (320, 360): 1.20 m
+
+✅ Test Complete!
+```
+
+### Camera Not Responding
+
+**Problem**: `No Orbbec devices found` or `Failed to start camera`
+
+- Check camera is connected via USB
+- Verify USB device appears:
+  ```bash
+  lsusb | grep -i orbbec
+  ```
+- Install udev rules (Linux):
+  ```bash
+  # Download udev rules from pyorbbecsdk
+  sudo wget https://raw.githubusercontent.com/orbbec/pyorbbecsdk/main/misc/99-obsensor-libusb.rules -O /etc/udev/rules.d/99-obsensor-libusb.rules
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+  ```
+- Check permissions (add user to video group):
+  ```bash
+  sudo usermod -a -G video $USER
+  # Then logout and login
+  ```
+
+**Problem**: `ModuleNotFoundError: No module named 'pyorbbecsdk'`
+
+- Install PyOrbbecSDK:
+  ```bash
+  pip install pyorbbecsdk2
+  ```
+- Note: Package name is `pyorbbecsdk2` but import is `pyorbbecsdk`
+
+**Problem**: No RGB or depth frames
+
+- Wait 1-2 seconds after start() for first frames
+- Check camera supports both RGB and Depth (some models depth-only)
+- Verify camera is not in use by another process
+
 ## Future Tests
 
 Planned integration tests:
@@ -218,6 +386,7 @@ Planned integration tests:
 - **Multiple Motors**: Test 4 motors running together
 - **Mecanum Drive**: Test omnidirectional movement
 - **Odometry**: Verify position tracking accuracy
+- **Orbbec Camera**: Test RGB + Depth capture
 - **CAN Bus Load**: Test with many motors on same bus
 - **Error Recovery**: Test handling of CAN errors, motor faults
 - **Safety Systems**: Test emergency stop, timeout edge cases

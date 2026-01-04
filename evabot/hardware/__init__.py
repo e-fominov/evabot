@@ -7,7 +7,11 @@ when accessing hardware resources like CAN bus, cameras, etc.
 """
 
 from .can_bus import CanBus
+from .lidar_device import LidarDevice
+from .camera_device import CameraDevice
 
 __all__ = [
     "CanBus",
+    "LidarDevice",
+    "CameraDevice",
 ]

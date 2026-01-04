@@ -547,19 +547,18 @@ print(f"Front: {robot.lidar.front}m")
 - Implement based on Slamtec SDK protocol
 - Reference: `/home/fm/work/ttc-4/ros2_ws/src/webots_bridge/webots_bridge/lidar_stl19p_node.py`
 
-**Tasks**:
-- [ ] Research Slamtec SDK C1 protocol
-- [ ] Implement LidarDevice singleton (serial communication, 460800 baud)
-- [ ] Parse scan packets
-- [ ] Background scan thread
-- [ ] RPLidarC1 component wrapper
-- [ ] Process scans → `.front`, `.back`, `.left`, `.right`
-- [ ] Full scan access: `.scan` (360° dict)
-- [ ] Test: Read distances, verify accuracy
+**Tasks**: ✅ **COMPLETED**
+- [x] Research Slamtec SDK C1 protocol
+- [x] Implement LidarDevice singleton (serial communication, 460800 baud)
+- [x] Parse scan packets (custom raw serial protocol)
+- [x] Background scan thread
+- [x] RPLidarC1 component wrapper
+- [x] Process scans → `.front`, `.back`, `.left`, `.right` (CW rotation)
+- [x] Full scan access: `.scan` (360° dict)
+- [x] Test: Read distances, verify accuracy
+- [x] Fix initialization reliability (buffer clearing)
 
-**Time**: 10-15 hours (custom driver work)
-
-**Alternative**: Use mock/simulator initially, implement real driver later
+**Status**: ✅ Complete - See `examples/LIDAR_README.md`
 
 ### 3.2 Orbbec Camera Component
 
@@ -616,18 +615,18 @@ distance = robot.camera.depth_at(320, 240)
 print(f"Center distance: {distance:.2f}m")
 ```
 
-**Tasks**:
-- [ ] Integrate OrbbecSDK (Python bindings or subprocess)
-- [ ] CameraDevice singleton (manages physical camera)
-- [ ] Background capture thread (configurable FPS, default 30)
-- [ ] OrbbecCamera component wrapper
-- [ ] `.image` - latest RGB frame
-- [ ] `.depth` - latest depth frame
-- [ ] `.depth_at(x, y)` - point distance
-- [ ] Color detection (HSV thresholding) - optional
-- [ ] Test: Capture RGB+Depth, verify frame rate
+**Tasks**: ✅ **COMPLETED**
+- [x] Integrate PyOrbbecSDK (Python bindings v2)
+- [x] CameraDevice singleton (manages physical camera)
+- [x] Background capture thread (configurable FPS, default 30)
+- [x] OrbbecCamera component wrapper
+- [x] `.image` - latest RGB frame
+- [x] `.depth` - latest depth frame (mm and meters)
+- [x] `.depth_at(x, y)` - point distance
+- [x] Atomic frame retrieval `.get_frames()`
+- [x] Test: Integration test with visualization
 
-**Time**: 10-12 hours
+**Status**: ✅ Complete - See `examples/CAMERA_README.md`
 
 **Deliverable**:
 ```python
