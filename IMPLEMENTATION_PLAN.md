@@ -652,6 +652,7 @@ print(f"Depth at center: {distance:.2f}m")
 ## Phase 4: Control Loops (Week 5)
 **Goal**: Decorator-based behaviors
 
+
 ### 4.1 Loop Decorator ✅ COMPLETED
 
 Already implemented in robot.py:
@@ -714,6 +715,8 @@ robot.drive.turn_right(90)     # Turn 90 degrees
 ---
 
 ## Phase 5: Actuators (Week 6)
+note, we need to implement MecanumDrive function `move_by(dx, dy, dtheta)`
+
 **Goal**: 5th motor for gripper/arm
 
 ### 5.1 Servo Actuator Component
@@ -1060,3 +1063,12 @@ robot.start()  # Autonomous navigation!
 ---
 
 **Ready to continue with Phase 1.2 - CanBus Singleton!**
+
+
+# Issues
+- when robot boots, the motots are locked in a hold position, consuming much power. lets update our can script to also disable all the motors. looks, like canid=0 works on all motors
+- i worry that start/stop commands for motors adds extra complexity. what if we will omit them? then just creating a motor is enough to make it available. motor creation should enable it with onlocked state. same for a stop - do we really need stop? after program end, motor will be stopped. same the enable/disable. i don't think we need motor add/remove from bus. but instead hold/release would be useful
+- all the book lessons are just about the `Motor` class while we have `Servo42D` motor class. Can we use Motor instead of Servo42D, like if no specific class -use motor. we will have other motors i think, but that will be later and we can change the interface to handle other types of motors. may be instead use like `from evabot.servo42d import Motor` or `from evabot import Servo42D as Motor` or `from evabot import Motor` to have it correctly defaulted?
+- we have get_position that operates encoder ticks. for kids we don't need such level of details. we should use degrees or rotations
+- move_by motor functions accepts the units. can we simplify that? like having `move_by_deg` or `move_by_rot` ?
+- 

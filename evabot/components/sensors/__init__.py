@@ -4,9 +4,9 @@ Sensor components for robots.
 """
 
 from .lidar import RPLidarC1
-from .camera import OrbbecCamera
+# from .camera import OrbbecCamera  # Temporarily disabled
 
 __all__ = [
     "RPLidarC1",
-    "OrbbecCamera",
+    # "OrbbecCamera",  # Temporarily disabled
 ]

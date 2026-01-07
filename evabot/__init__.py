@@ -22,12 +22,13 @@ __version__ = "0.1.0"
 
 # Main classes
 from .robot import Robot
-from .components import MecanumDrive, Servo42D
+from .components import MecanumDrive, Servo42D, RPLidarC1
 
 # Re-export commonly used items
 __all__ = [
     "Robot",
     "MecanumDrive",
     "Servo42D",
+    "RPLidarC1",
     "__version__",
 ]

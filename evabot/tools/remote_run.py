@@ -156,7 +156,8 @@ def setup_can_on_robot(config: dict):
     """Setup CAN bus on robot before running scripts"""
     print(f"{Colors.BLUE}→ Setting up CAN bus...{Colors.RESET}")
     # Try venv first, fallback to system python
-    cmd = f"cd {config['remote_dir']} && (./venv/bin/python -m evabot.tools.setup_can || python3 -m evabot.tools.setup_can)"
+    # Use -u flag for unbuffered output (real-time display)
+    cmd = f"cd {config['remote_dir']} && (./venv/bin/python -u -m evabot.tools.setup_can || python3 -u -m evabot.tools.setup_can)"
     returncode = run_ssh_command(config, cmd)
     print()
     return returncode == 0
@@ -189,7 +190,8 @@ def run_script(config: dict, script_path: Path, args: str = ""):
     print(f"{Colors.YELLOW}{'=' * 60}{Colors.RESET}\n")
 
     # Build python command (use venv if available, fallback to system python)
-    python_cmd = f"cd {config['remote_dir']} && (./venv/bin/python {script_path.name} {args} || python3 {script_path.name} {args})"
+    # Use -u flag for unbuffered output (real-time display)
+    python_cmd = f"cd {config['remote_dir']} && (./venv/bin/python -u {script_path.name} {args} || python3 -u {script_path.name} {args})"
 
     returncode = run_ssh_command(config, python_cmd)
 
@@ -454,7 +456,8 @@ def main():
     # Run command
     run_parser = subparsers.add_parser('run', help='Run script on robot')
     run_parser.add_argument('script', type=str, help='Python script to run')
-    run_parser.add_argument('--args', type=str, default='', help='Arguments to pass to script')
+    run_parser.add_argument('script_args', nargs='*', help='Arguments to pass to script (use -- separator)')
+    run_parser.add_argument('--args', type=str, default='', help='(Deprecated) Use positional args instead')
 
     # Copy command
     copy_parser = subparsers.add_parser('copy', help='Copy file to robot')
@@ -484,7 +487,9 @@ def main():
 
     if args.command == 'run':
         script_path = Path(args.script)
-        return run_script(config, script_path, args.args)
+        # Use script_args if provided, fallback to deprecated --args
+        script_args_str = ' '.join(args.script_args) if args.script_args else args.args
+        return run_script(config, script_path, script_args_str)
 
     elif args.command == 'copy':
         file_path = Path(args.file)

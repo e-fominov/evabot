@@ -92,48 +92,73 @@ Learn mecanum wheel magic and robot coordination!
 
 ---
 
-### 📋 Chapter 4: Drive Systems
-**Status:** Coming Soon
+### ✅ Chapter 4: Drive Systems - Command-Based Control
+**Status:** Complete
 
-Build a real drive system:
-- Mecanum kinematics (how omnidirectional movement works)
-- High-level control (move in meters/second instead of RPM)
-- Odometry (robot knows where it is!)
-- Drive patterns and trajectories
+Build and control a mecanum drive system:
+- Drive types (differential, mecanum, ackermann)
+- Coordinate systems (robot frame vs world frame)
+- Velocity control (vx, vy, vtheta)
+- Time-based movements (distance = speed × time)
+- Calibration through measurement
+- Movement patterns (square, figure-8, star, spiral)
+- **Bonus:** Keyboard teleoperation (control like RC car!)
 - **Lessons**: 3.1 - 3.6
 
----
+**Time:** 3-4 hours
 
-### 📋 Chapter 5: Sensors
-**Status:** Planned
-
-Add eyes and ears to your robot:
-- RPLidar for obstacle detection
-- Orbbec camera for vision
-- Sensor data processing
-- Sensor fusion
+👉 **[Read Chapter 4](chapter4_drive_systems.md)**
 
 ---
 
-### 📋 Chapter 6: Autonomous Behaviors
-**Status:** Planned
+### ✅ Chapter 5: Writing Your Own Control Loops
+**Status:** Complete
 
-Make robots think:
-- State machines
-- Reactive behaviors
-- Goal-based planning
-- Decision making
+Learn to read sensors and write control logic:
+- Reading odometry: `robot.odom.pose.x/y/theta`
+- Writing while loops with condition checking
+- Proportional control (smooth approach to targets)
+- When to use built-in methods vs user loops
+- Practical examples (world position, rotation, circles)
+- Bridge to sensor-based control
+
+**Time:** 2-3 hours
+
+👉 **[Read Chapter 5](chapter5_user_control_loops.md)**
 
 ---
 
-### 📋 Chapter 7: Navigation & SLAM
+### 📋 Chapter 6: Sensors (Lidar & Camera)
 **Status:** Planned
 
-Advanced navigation:
-- Mapping with lidar
-- Localization (knowing where you are)
-- Path planning
-- Autonomous navigation
+Add eyes to your robot:
+- RPLidar C1 (obstacle detection, 360° scanning)
+- Orbbec Camera (RGB + depth vision)
+- Reading sensor data in your code
+- Reactive behaviors (stop when obstacle detected)
+- **Lessons**: 4.1 - 4.5 (Lidar), 5.1 - 5.5 (Camera)
+
+---
+
+### 📋 Chapter 7: Autonomous Behaviors
+**Status:** Planned
+
+Make robots think and act:
+- State machines (switching between behaviors)
+- Control loops with `@robot.loop` decorator
+- Sensor fusion (combining lidar + camera + odometry)
+- Reactive behaviors (wall following, object tracking)
+
+---
+
+### 📋 Chapter 8: Navigation & SLAM
+**Status:** Planned
+
+Advanced autonomous navigation:
+- Mapping with lidar (GridMapper)
+- Localization (knowing where you are on a map)
+- Path planning (A*, navigate_to(x, y))
+- Maze solving
 
 ## Programming Reference
 

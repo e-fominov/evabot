@@ -226,6 +226,225 @@ class MecanumDrive(Component):
         """Stop all motion (convenience method)"""
         self.move(0, 0, 0)
 
+    # ========== Blocking Movements ==========
+
+    def move_for(self, duration: float, vx: float = 0, vy: float = 0, vtheta: float = 0):
+        """
+        Move at specified velocities for a duration (blocks until complete).
+
+        This is time-based control - moves for a set time regardless of distance traveled.
+        Useful for simple timed movements when exact distance is not critical.
+
+        Args:
+            duration: Time to move in seconds
+            vx: Forward velocity in m/s (positive = forward)
+            vy: Left velocity in m/s (positive = left)
+            vtheta: Rotation velocity in rad/s (positive = CCW)
+
+        Usage:
+            robot.drive.move_for(5.0, vx=0.2)                    # Forward 5 sec
+            robot.drive.move_for(3.0, vtheta=0.5)                # Rotate 3 sec
+            robot.drive.move_for(4.0, vx=0.2, vy=0.1)            # Diagonal 4 sec
+            robot.drive.move_for(2.0, vx=0.2, vtheta=0.3)        # Arc 2 sec
+        """
+        if duration <= 0:
+            return
+
+        try:
+            self.move(vx=vx, vy=vy, vtheta=vtheta)
+            time.sleep(duration)
+        except KeyboardInterrupt:
+            self.halt()
+            raise
+        finally:
+            self.halt()
+
+    def move_by(self, dx: float = 0, dy: float = 0, dtheta: float = 0,
+                speed: float = 0.2, timeout: float = 30.0):
+        """
+        Move by specified displacements (blocks until complete).
+
+        Uses odometry feedback to move exactly the specified distances.
+        This is a blocking call - returns when movement is complete or timeout reached.
+
+        Args:
+            dx: Forward distance in meters (positive = forward, negative = backward)
+            dy: Left distance in meters (positive = left, negative = right)
+            dtheta: Rotation angle in radians (positive = CCW, negative = CW)
+            speed: Maximum linear speed in m/s (default 0.2)
+            timeout: Maximum time to wait in seconds (default 30.0)
+
+        Returns:
+            bool: True if target reached, False if timeout
+
+        Raises:
+            RuntimeError: If robot not attached or odometry not available
+
+        Usage:
+            robot.drive.move_by(dx=1.0)              # Forward 1m
+            robot.drive.move_by(dy=0.5)              # Strafe left 0.5m
+            robot.drive.move_by(dtheta=math.pi/2)    # Rotate 90° CCW
+            robot.drive.move_by(dx=1.0, dy=0.5)      # Diagonal
+            robot.drive.move_by(dx=1.0, dtheta=0.5)  # Forward + rotate
+        """
+        # Check if robot attached
+        if self._robot is None:
+            raise RuntimeError("MecanumDrive must be attached to Robot to use move_by()")
+
+        # If all zeros, nothing to do
+        if dx == 0 and dy == 0 and dtheta == 0:
+            return True
+
+        # Get starting pose
+        start_pose = self._robot.odom.pose
+        start_x = start_pose.x
+        start_y = start_pose.y
+        start_theta = start_pose.theta
+
+        # Calculate target pose (in odometry frame)
+        # Note: dx, dy are in robot frame, need to convert to odometry frame
+        cos_theta = math.cos(start_theta)
+        sin_theta = math.sin(start_theta)
+
+        target_x = start_x + dx * cos_theta - dy * sin_theta
+        target_y = start_y + dx * sin_theta + dy * cos_theta
+        target_theta = start_theta + dtheta
+
+        # Calculate total distance for speed scaling
+        linear_dist = math.sqrt(dx**2 + dy**2)
+        angular_dist = abs(dtheta)
+
+        # Determine movement duration (use longer of linear/angular)
+        if linear_dist > 0:
+            linear_time = linear_dist / speed
+        else:
+            linear_time = 0
+
+        if angular_dist > 0:
+            # Use reasonable rotation speed (e.g., 0.5 rad/s per 0.2 m/s)
+            rot_speed = speed * 2.5  # Scale rotation speed with linear speed
+            angular_time = angular_dist / rot_speed
+        else:
+            angular_time = 0
+
+        duration = max(linear_time, angular_time)
+
+        if duration == 0:
+            return True
+
+        # Calculate velocities in robot frame
+        vx = dx / duration
+        vy = dy / duration
+        vtheta = dtheta / duration
+
+        # Thresholds for "close enough"
+        pos_threshold = 0.01  # 1cm
+        angle_threshold = 0.05  # ~3 degrees
+
+        # Start movement
+        start_time = time.time()
+        self.move(vx=vx, vy=vy, vtheta=vtheta)
+
+        try:
+            # Control loop
+            rate = 50  # Hz
+            period = 1.0 / rate
+
+            while True:
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    self.halt()
+                    return False
+
+                # Get current pose
+                current_pose = self._robot.odom.pose
+
+                # Calculate errors (in odometry frame)
+                error_x = target_x - current_pose.x
+                error_y = target_y - current_pose.y
+                error_theta = target_theta - current_pose.theta
+
+                # Normalize angle error to [-pi, pi]
+                while error_theta > math.pi:
+                    error_theta -= 2 * math.pi
+                while error_theta < -math.pi:
+                    error_theta += 2 * math.pi
+
+                # Calculate distance to target
+                pos_error = math.sqrt(error_x**2 + error_y**2)
+                angle_error = abs(error_theta)
+
+                # Check if reached target
+                if pos_error < pos_threshold and angle_error < angle_threshold:
+                    self.halt()
+                    return True
+
+                # Proportional control with distance remaining
+                # Slow down as we approach target
+                remaining_fraction = pos_error / (linear_dist + 0.001)  # Avoid division by zero
+                remaining_fraction = max(0.1, min(1.0, remaining_fraction))  # Clamp to [0.1, 1.0]
+
+                # Update velocities (transform errors back to robot frame for control)
+                cos_current = math.cos(current_pose.theta)
+                sin_current = math.sin(current_pose.theta)
+
+                error_x_robot = error_x * cos_current + error_y * sin_current
+                error_y_robot = -error_x * sin_current + error_y * cos_current
+
+                # Scale velocities based on remaining distance
+                new_vx = (error_x_robot / duration) * remaining_fraction
+                new_vy = (error_y_robot / duration) * remaining_fraction
+                new_vtheta = (error_theta / duration)
+
+                # Limit speeds
+                speed_limit = speed * 1.2  # Allow slight overshoot for faster response
+                new_vx = max(-speed_limit, min(speed_limit, new_vx))
+                new_vy = max(-speed_limit, min(speed_limit, new_vy))
+
+                rot_limit = speed * 3.0
+                new_vtheta = max(-rot_limit, min(rot_limit, new_vtheta))
+
+                self.move(vx=new_vx, vy=new_vy, vtheta=new_vtheta)
+
+                time.sleep(period)
+
+        except KeyboardInterrupt:
+            self.halt()
+            raise
+
+    # ========== Utility Methods ==========
+
+    def zero_position(self):
+        """
+        Reset odometry to (0, 0, 0).
+
+        Sets the current position as the origin. Useful for:
+        - Starting navigation from a known point
+        - Resetting after manual repositioning
+        - Beginning a new task or mission
+
+        Raises:
+            RuntimeError: If robot not attached
+
+        Usage:
+            # Mark current location as origin
+            robot.drive.zero_position()
+
+            # Now move relative to this new origin
+            robot.drive.move_by(dx=1.0)
+            print(robot.odom.pose.x)  # Will be ~1.0
+
+            # Move back to origin
+            robot.drive.move_by(dx=-1.0)
+            print(robot.odom.pose.x)  # Will be ~0.0
+        """
+        if self._robot is None:
+            raise RuntimeError("MecanumDrive must be attached to Robot to use zero_position()")
+
+        self._robot._state.odom.set_pose(0, 0, 0)
+        self._robot._state.odom.set_velocity(0, 0, 0)
+
     # ========== Odometry (Internal) ==========
 
     def _odometry_loop(self):
