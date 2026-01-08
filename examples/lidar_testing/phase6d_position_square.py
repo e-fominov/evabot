@@ -63,10 +63,26 @@ def move_to_center(robot, arena_size=0.60, max_retries=3):
             print(f"  Wall measurements (attempt {attempt+1}):")
         else:
             print(f"  Retry {attempt}: Wall measurements:")
-        print(f"    Front (0°):   {front_distance*100:.1f}cm" if front_distance else "    Front (0°):   None")
-        print(f"    Right (90°):  {right_distance*100:.1f}cm" if right_distance else "    Right (90°):  None")
-        print(f"    Back (180°):  {back_distance*100:.1f}cm" if back_distance else "    Back (180°):  None")
-        print(f"    Left (270°):  {left_distance*100:.1f}cm" if left_distance else "    Left (270°):  None")
+        print(
+            f"    Front (0°):   {front_distance*100:.1f}cm"
+            if front_distance
+            else "    Front (0°):   None"
+        )
+        print(
+            f"    Right (90°):  {right_distance*100:.1f}cm"
+            if right_distance
+            else "    Right (90°):  None"
+        )
+        print(
+            f"    Back (180°):  {back_distance*100:.1f}cm"
+            if back_distance
+            else "    Back (180°):  None"
+        )
+        print(
+            f"    Left (270°):  {left_distance*100:.1f}cm"
+            if left_distance
+            else "    Left (270°):  None"
+        )
 
         # Check if we have minimum required measurements
         if front_distance and back_distance:
@@ -140,7 +156,9 @@ def check_and_align_if_needed(robot, wall_angle, threshold=3.0, max_iterations=5
 
         if angle_deg is not None:
             rotation_speed = ROTATION_GAIN * angle_deg
-            rotation_speed = max(-MAX_ROTATION_SPEED, min(MAX_ROTATION_SPEED, rotation_speed))
+            rotation_speed = max(
+                -MAX_ROTATION_SPEED, min(MAX_ROTATION_SPEED, rotation_speed)
+            )
             robot.drive.move(vtheta=rotation_speed)
 
         time.sleep(1.0 / UPDATE_RATE)
@@ -157,7 +175,7 @@ def move_to_wall_position_control(
     target_wall_angle: int = 0,
     target_distance: float = 0.17,
     speed: float = 0.2,
-    update_rate: int = 50
+    update_rate: int = 50,
 ):
     """
     Move toward wall using position control with continuous lidar monitoring.
@@ -186,15 +204,19 @@ def move_to_wall_position_control(
     elif dy < 0:
         direction_name = "right"
 
-    print(f"  Moving {direction_name} → wall {target_wall_angle}° (position control @ {speed*100:.0f}cm/s)")
+    print(
+        f"  Moving {direction_name} → wall {target_wall_angle}° (position control @ {speed*100:.0f}cm/s)"
+    )
 
     start_time = time.time()
-    min_wall_distance = float('inf')
+    min_wall_distance = float("inf")
     update_count = 0
     stopped = False
 
     lost_measurement_count = 0
-    max_lost_measurements = 5  # Allow up to 5 consecutive failed readings before giving up
+    max_lost_measurements = (
+        5  # Allow up to 5 consecutive failed readings before giving up
+    )
 
     while time.time() - start_time < 15.0:  # 15s timeout
         # Measure distance to target wall
@@ -203,7 +225,9 @@ def move_to_wall_position_control(
         if wall_distance is None:
             lost_measurement_count += 1
             if lost_measurement_count >= max_lost_measurements:
-                print(f"    ✗ Lost wall measurement ({max_lost_measurements} consecutive failures)")
+                print(
+                    f"    ✗ Lost wall measurement ({max_lost_measurements} consecutive failures)"
+                )
                 robot.drive.halt()
                 return False, None, min_wall_distance
             # Skip this cycle but keep moving
@@ -255,7 +279,9 @@ def move_to_wall_position_control(
 
     if final_distance:
         error = final_distance - target_distance
-        print(f"  ✓ Reached wall: {final_distance*100:.1f}cm (error: {error*100:+.1f}cm, {elapsed:.2f}s, {update_count} updates)")
+        print(
+            f"  ✓ Reached wall: {final_distance*100:.1f}cm (error: {error*100:+.1f}cm, {elapsed:.2f}s, {update_count} updates)"
+        )
         return True, final_distance, min_wall_distance
     else:
         print(f"  ✗ Cannot measure final distance")
@@ -277,7 +303,7 @@ def run_square_pattern(robot, speed, target_distance=0.17, alignment_threshold=3
     start_time = time.time()
     all_distances = []
     all_errors = []
-    min_distance_overall = float('inf')
+    min_distance_overall = float("inf")
     alignments_performed = 0
 
     # Step 1: Forward to front wall
@@ -299,7 +325,11 @@ def run_square_pattern(robot, speed, target_distance=0.17, alignment_threshold=3
     # Step 2: Left to left wall
     print("\n[2/4] Left → Left Wall (270°)")
     success, final_dist, min_dist = move_to_wall_position_control(
-        robot, dy=1.0, target_wall_angle=270, target_distance=target_distance, speed=speed
+        robot,
+        dy=1.0,
+        target_wall_angle=270,
+        target_distance=target_distance,
+        speed=speed,
     )
     if not success:
         return None
@@ -315,7 +345,11 @@ def run_square_pattern(robot, speed, target_distance=0.17, alignment_threshold=3
     # Step 3: Backward to back wall
     print("\n[3/4] Backward → Back Wall (180°)")
     success, final_dist, min_dist = move_to_wall_position_control(
-        robot, dx=-1.0, target_wall_angle=180, target_distance=target_distance, speed=speed
+        robot,
+        dx=-1.0,
+        target_wall_angle=180,
+        target_distance=target_distance,
+        speed=speed,
     )
     if not success:
         return None
@@ -331,7 +365,11 @@ def run_square_pattern(robot, speed, target_distance=0.17, alignment_threshold=3
     # Step 4: Right to right wall
     print("\n[4/4] Right → Right Wall (90°)")
     success, final_dist, min_dist = move_to_wall_position_control(
-        robot, dy=-1.0, target_wall_angle=90, target_distance=target_distance, speed=speed
+        robot,
+        dy=-1.0,
+        target_wall_angle=90,
+        target_distance=target_distance,
+        speed=speed,
     )
     if not success:
         return None
@@ -350,14 +388,14 @@ def run_square_pattern(robot, speed, target_distance=0.17, alignment_threshold=3
     collision = min_distance_overall < 0.13
 
     return {
-        'speed': speed,
-        'time': elapsed,
-        'distances': all_distances,
-        'errors': all_errors,
-        'max_error': max_error,
-        'min_distance': min_distance_overall,
-        'collision': collision,
-        'alignments': alignments_performed
+        "speed": speed,
+        "time": elapsed,
+        "distances": all_distances,
+        "errors": all_errors,
+        "max_error": max_error,
+        "min_distance": min_distance_overall,
+        "collision": collision,
+        "alignments": alignments_performed,
     }
 
 
@@ -379,13 +417,18 @@ def main():
     time.sleep(5)
 
     # Test parameters
-    TEST_SPEEDS = [0.08, 0.12, 0.16, 0.20, 0.24]  # m/s
+    TEST_SPEEDS = [0.40, 0.50, 0.75, 1.0]  # m/s
+    # TEST_SPEEDS = [0.24, 0.30, 0.35, 0.40]  # m/s
+    # TEST_SPEEDS = [0.08, 0.12, 0.16, 0.20, 0.24, 0.30, 0.35, 0.40]  # m/s
     TARGET_DISTANCE = 0.17  # 17cm from wall
     ALIGNMENT_THRESHOLD = 3.0  # Only align if error > 3°
+    ACCELERATION = 10
 
     # Initialize robot
     robot = Robot()
-    robot.drive = MecanumDrive(fl=3, fr=4, bl=1, br=2, pattern='X', acceleration=100)
+    robot.drive = MecanumDrive(
+        fl=3, fr=4, bl=1, br=2, pattern="X", acceleration=ACCELERATION
+    )
     robot.lidar = RPLidarC1(max_range=1.0)
     robot.start()
 
@@ -407,7 +450,9 @@ def main():
             time.sleep(0.5)
 
             # Run square pattern
-            result = run_square_pattern(robot, speed, TARGET_DISTANCE, ALIGNMENT_THRESHOLD)
+            result = run_square_pattern(
+                robot, speed, TARGET_DISTANCE, ALIGNMENT_THRESHOLD
+            )
 
             if result:
                 all_results.append(result)
@@ -419,11 +464,14 @@ def main():
         print()
         print("=" * 70)
         print("HIGH-SPEED SQUARE PATTERN RESULTS")
+        print(f"ACCELERATION = {ACCELERATION}")
         print("=" * 70)
         print()
 
         if all_results:
-            print(f"{'Speed':>8} │ {'Time':>7} │ {'Max Err':>8} │ {'Min Dist':>9} │ {'Collision':>10} │ {'Aligns':>7}")
+            print(
+                f"{'Speed':>8} │ {'Time':>7} │ {'Max Err':>8} │ {'Min Dist':>9} │ {'Collision':>10} │ {'Aligns':>7}"
+            )
             print("─" * 70)
 
             for r in all_results:
@@ -431,10 +479,12 @@ def main():
                 time_str = f"{r['time']:.1f}s"
                 err_str = f"{r['max_error']*100:.1f}cm"
                 min_str = f"{r['min_distance']*100:.1f}cm"
-                coll_str = "✗ YES" if r['collision'] else "✓ No"
+                coll_str = "✗ YES" if r["collision"] else "✓ No"
                 align_str = f"{r['alignments']}/4"
 
-                print(f"{speed_str:>8} │ {time_str:>7} │ {err_str:>8} │ {min_str:>9} │ {coll_str:>10} │ {align_str:>7}")
+                print(
+                    f"{speed_str:>8} │ {time_str:>7} │ {err_str:>8} │ {min_str:>9} │ {coll_str:>10} │ {align_str:>7}"
+                )
 
         print()
         print("=" * 70)
@@ -448,19 +498,25 @@ def main():
         print()
 
         if all_results:
-            successful_speeds = [r for r in all_results if not r['collision'] and r['max_error'] < 0.03]
+            successful_speeds = [
+                r for r in all_results if not r["collision"] and r["max_error"] < 0.03
+            ]
             if successful_speeds:
-                fastest = min(successful_speeds, key=lambda x: x['time'])
-                print(f"Best Result: {fastest['speed']*100:.0f} cm/s in {fastest['time']:.1f}s")
+                fastest = min(successful_speeds, key=lambda x: x["time"])
+                print(
+                    f"Best Result: {fastest['speed']*100:.0f} cm/s in {fastest['time']:.1f}s"
+                )
                 print(f"  Max error: {fastest['max_error']*100:.1f}cm")
                 print(f"  Min distance: {fastest['min_distance']*100:.1f}cm")
                 print(f"  Alignments: {fastest['alignments']}/4")
 
                 # Compare with velocity control baseline
-                if fastest['speed'] >= 0.16:
+                if fastest["speed"] >= 0.16:
                     print()
                     print("🎉 HIGH-SPEED SUCCESS!")
-                    print(f"  Position control enables safe {fastest['speed']*100:.0f} cm/s navigation")
+                    print(
+                        f"  Position control enables safe {fastest['speed']*100:.0f} cm/s navigation"
+                    )
                     print(f"  Velocity control: Collisions at 16+ cm/s")
 
     except KeyboardInterrupt:

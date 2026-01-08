@@ -253,7 +253,7 @@ class MecanumDrive(Component):
         self,
         dx: float = 0,
         dy: float = 0,
-        dtheta: float = 0,
+        dtheta_deg: float = 0,
         speed: float = 0.2,
         acceleration: int = 50
     ):
@@ -270,7 +270,7 @@ class MecanumDrive(Component):
         Args:
             dx: Forward displacement in meters (positive = forward, negative = backward)
             dy: Left displacement in meters (positive = left, negative = right)
-            dtheta: Rotation angle in radians (positive = CCW, negative = CW)
+            dtheta_deg: Rotation angle in DEGREES (positive = CCW, negative = CW)
             speed: Maximum linear speed in m/s (default 0.2)
             acceleration: Motor acceleration (0-255, default 50)
 
@@ -280,6 +280,9 @@ class MecanumDrive(Component):
         Usage:
             # Set target and continue execution
             robot.drive.set_target_position(dx=0.30, speed=0.16)
+
+            # Rotate 90 degrees while moving forward
+            robot.drive.set_target_position(dx=0.20, dtheta_deg=90, speed=0.16)
 
             # Monitor lidar while motors handle precise motion
             while robot.drive.is_position_control_active():
@@ -307,10 +310,14 @@ class MecanumDrive(Component):
         # Get current odometry position
         current_pose = self._robot.odom.pose
 
+        # Convert degrees to radians internally
+        import math
+        dtheta_rad = math.radians(dtheta_deg)
+
         with self._position_control_lock:
             self._target_dx = dx
             self._target_dy = dy
-            self._target_dtheta = dtheta
+            self._target_dtheta = dtheta_rad  # Store as radians internally
             self._target_speed = speed
             self.acceleration = acceleration  # Update motor acceleration
 
