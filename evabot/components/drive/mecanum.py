@@ -58,13 +58,14 @@ class MecanumDrive(Component):
         fr: int,
         bl: int,
         br: int,
-        wheel_radius: float = 0.05,     # meters (50mm)
-        wheel_base: float = 0.20,        # meters (200mm, front-back)
-        track_width: float = 0.20,       # meters (200mm, left-right)
-        pulses_per_rev: int = 3200,      # Servo42D: 200 steps × 16 subdivisions
-        channel: str = 'can0',
+        wheel_radius: float = 0.04,  # meters (50mm)
+        wheel_base: float = 0.20,  # meters (200mm, front-back)
+        track_width: float = 0.20,  # meters (200mm, left-right)
+        pulses_per_rev: int = 3200,  # Servo42D: 200 steps × 16 subdivisions
+        channel: str = "can0",
         bitrate: int = 500000,
-        pattern: str = 'X'               # 'X' or 'diamond'
+        pattern: str = "X",  # 'X' or 'diamond'
+        acceleration: int = 50,  # Motor acceleration (0-255, higher=smoother)
     ):
         """
         Initialize mecanum drive.
@@ -80,6 +81,10 @@ class MecanumDrive(Component):
             pattern: Wheel pattern - 'X' or 'diamond' (default 'X')
                     'X': FL\\ FR/ BL/ BR\\ (most common)
                     'diamond': FL/ FR\\ BL\\ BR/ (alternative)
+            acceleration: Motor acceleration (0-255, default 50)
+                         Higher values = smoother but slower acceleration
+                         Lower values = faster but jerkier acceleration
+                         Recommended: 50-100 for smooth motion under load
         """
         super().__init__(name="MecanumDrive")
 
@@ -89,9 +94,10 @@ class MecanumDrive(Component):
         self.track_width = track_width
         self.pulses_per_rev = pulses_per_rev
         self.pattern = pattern.lower()
+        self.acceleration = acceleration
 
         # Validate pattern
-        if self.pattern not in ['x', 'diamond']:
+        if self.pattern not in ["x", "diamond"]:
             raise ValueError(f"Invalid pattern '{pattern}'. Use 'X' or 'diamond'")
 
         # Create motors
@@ -107,6 +113,17 @@ class MecanumDrive(Component):
         self._running = False
         self._last_encoder = [0, 0, 0, 0]  # Last encoder readings
 
+        # Target position control (non-blocking position mode)
+        self._position_control_active = False
+        self._target_dx = 0.0  # Target displacement in robot frame (meters)
+        self._target_dy = 0.0
+        self._target_dtheta = 0.0
+        self._target_speed = 0.2  # m/s
+        self._position_start_x = 0.0  # Odometry position when target was set
+        self._position_start_y = 0.0
+        self._position_start_theta = 0.0
+        self._position_control_lock = threading.RLock()
+
     def start(self):
         """
         Start drive system (enable motors, start odometry).
@@ -121,9 +138,7 @@ class MecanumDrive(Component):
         if self._robot is not None:
             self._running = True
             self._odom_thread = threading.Thread(
-                target=self._odometry_loop,
-                daemon=True,
-                name="odometry"
+                target=self._odometry_loop, daemon=True, name="odometry"
             )
             self._odom_thread.start()
             print(f"{self.name}: Odometry started")
@@ -172,7 +187,7 @@ class MecanumDrive(Component):
         # Calculate wheel velocities (m/s)
         lx = (self.wheel_base + self.track_width) / 2  # half diagonal
 
-        if self.pattern == 'x':
+        if self.pattern == "x":
             # X pattern: FL\\ FR/ BL/ BR\\
             vfl = vx - vy - vtheta * lx
             vfr = vx + vy + vtheta * lx
@@ -193,10 +208,11 @@ class MecanumDrive(Component):
             return omega * (60.0 / (2.0 * math.pi))
 
         # Set motor speeds
-        self.fl.run(vel_to_rpm(vfl))
-        self.fr.run(vel_to_rpm(vfr))
-        self.bl.run(vel_to_rpm(vbl))
-        self.br.run(vel_to_rpm(vbr))
+        # Right side motors (FR, BR) are physically mirrored, so negate their speeds
+        self.fl.run(vel_to_rpm(vfl), acceleration=self.acceleration)
+        self.fr.run(vel_to_rpm(-vfr), acceleration=self.acceleration)
+        self.bl.run(vel_to_rpm(vbl), acceleration=self.acceleration)
+        self.br.run(vel_to_rpm(-vbr), acceleration=self.acceleration)
 
     def forward(self, speed: float):
         """Move forward at speed (m/s)"""
@@ -224,11 +240,102 @@ class MecanumDrive(Component):
 
     def halt(self):
         """Stop all motion (convenience method)"""
+        # Cancel any active position control
+        with self._position_control_lock:
+            self._position_control_active = False
+
+        # Stop velocity control
         self.move(0, 0, 0)
+
+    # ========== Non-blocking Position Control ==========
+
+    def set_target_position(
+        self,
+        dx: float = 0,
+        dy: float = 0,
+        dtheta: float = 0,
+        speed: float = 0.2,
+        acceleration: int = 50
+    ):
+        """
+        Set target position for non-blocking position control (motor-based trajectory planning).
+
+        This method leverages the Servo42D's internal trajectory planner running at kHz
+        frequency for precise motion. Unlike velocity control with lidar feedback, this
+        eliminates Python control loop latency.
+
+        The odometry loop continuously updates motor target positions based on remaining
+        distance, allowing real-time monitoring and abortion via lidar/sensors.
+
+        Args:
+            dx: Forward displacement in meters (positive = forward, negative = backward)
+            dy: Left displacement in meters (positive = left, negative = right)
+            dtheta: Rotation angle in radians (positive = CCW, negative = CW)
+            speed: Maximum linear speed in m/s (default 0.2)
+            acceleration: Motor acceleration (0-255, default 50)
+
+        Returns:
+            None (non-blocking)
+
+        Usage:
+            # Set target and continue execution
+            robot.drive.set_target_position(dx=0.30, speed=0.16)
+
+            # Monitor lidar while motors handle precise motion
+            while robot.drive.is_position_control_active():
+                distance, _, _ = robot.lidar.check_wall(0)
+                if distance < 0.13:  # Safety stop
+                    robot.drive.halt()
+                    break
+                time.sleep(0.02)
+
+        Advantages over velocity control:
+            - Motor controller runs at kHz (vs 10-50Hz Python loop)
+            - Sub-millimeter precision even at high speeds
+            - Can abort immediately if needed
+            - Eliminates control loop latency
+
+        Note:
+            Requires robot attachment for odometry feedback.
+            Target position is continuously updated in odometry loop based on remaining distance.
+        """
+        if self._robot is None:
+            raise RuntimeError(
+                "MecanumDrive must be attached to Robot to use set_target_position()"
+            )
+
+        # Get current odometry position
+        current_pose = self._robot.odom.pose
+
+        with self._position_control_lock:
+            self._target_dx = dx
+            self._target_dy = dy
+            self._target_dtheta = dtheta
+            self._target_speed = speed
+            self.acceleration = acceleration  # Update motor acceleration
+
+            # Save starting position
+            self._position_start_x = current_pose.x
+            self._position_start_y = current_pose.y
+            self._position_start_theta = current_pose.theta
+
+            # Activate position control
+            self._position_control_active = True
+
+    def is_position_control_active(self) -> bool:
+        """Check if position control is currently active."""
+        with self._position_control_lock:
+            return self._position_control_active
+
+    def cancel_position_control(self):
+        """Cancel active position control (same as halt())."""
+        self.halt()
 
     # ========== Blocking Movements ==========
 
-    def move_for(self, duration: float, vx: float = 0, vy: float = 0, vtheta: float = 0):
+    def move_for(
+        self, duration: float, vx: float = 0, vy: float = 0, vtheta: float = 0
+    ):
         """
         Move at specified velocities for a duration (blocks until complete).
 
@@ -259,8 +366,14 @@ class MecanumDrive(Component):
         finally:
             self.halt()
 
-    def move_by(self, dx: float = 0, dy: float = 0, dtheta: float = 0,
-                speed: float = 0.2, timeout: float = 30.0):
+    def move_by(
+        self,
+        dx: float = 0,
+        dy: float = 0,
+        dtheta: float = 0,
+        speed: float = 0.2,
+        timeout: float = 30.0,
+    ):
         """
         Move by specified displacements (blocks until complete).
 
@@ -289,7 +402,9 @@ class MecanumDrive(Component):
         """
         # Check if robot attached
         if self._robot is None:
-            raise RuntimeError("MecanumDrive must be attached to Robot to use move_by()")
+            raise RuntimeError(
+                "MecanumDrive must be attached to Robot to use move_by()"
+            )
 
         # If all zeros, nothing to do
         if dx == 0 and dy == 0 and dtheta == 0:
@@ -382,8 +497,12 @@ class MecanumDrive(Component):
 
                 # Proportional control with distance remaining
                 # Slow down as we approach target
-                remaining_fraction = pos_error / (linear_dist + 0.001)  # Avoid division by zero
-                remaining_fraction = max(0.1, min(1.0, remaining_fraction))  # Clamp to [0.1, 1.0]
+                remaining_fraction = pos_error / (
+                    linear_dist + 0.001
+                )  # Avoid division by zero
+                remaining_fraction = max(
+                    0.1, min(1.0, remaining_fraction)
+                )  # Clamp to [0.1, 1.0]
 
                 # Update velocities (transform errors back to robot frame for control)
                 cos_current = math.cos(current_pose.theta)
@@ -395,7 +514,7 @@ class MecanumDrive(Component):
                 # Scale velocities based on remaining distance
                 new_vx = (error_x_robot / duration) * remaining_fraction
                 new_vy = (error_y_robot / duration) * remaining_fraction
-                new_vtheta = (error_theta / duration)
+                new_vtheta = error_theta / duration
 
                 # Limit speeds
                 speed_limit = speed * 1.2  # Allow slight overshoot for faster response
@@ -440,7 +559,9 @@ class MecanumDrive(Component):
             print(robot.odom.pose.x)  # Will be ~0.0
         """
         if self._robot is None:
-            raise RuntimeError("MecanumDrive must be attached to Robot to use zero_position()")
+            raise RuntimeError(
+                "MecanumDrive must be attached to Robot to use zero_position()"
+            )
 
         self._robot._state.odom.set_pose(0, 0, 0)
         self._robot._state.odom.set_velocity(0, 0, 0)
@@ -474,7 +595,9 @@ class MecanumDrive(Component):
 
                 # Convert pulses to wheel displacement (meters)
                 # distance = (pulses / pulses_per_rev) × (2π × radius)
-                meters_per_pulse = (2 * math.pi * self.wheel_radius) / self.pulses_per_rev
+                meters_per_pulse = (
+                    2 * math.pi * self.wheel_radius
+                ) / self.pulses_per_rev
 
                 dfl = delta_fl * meters_per_pulse
                 dfr = delta_fr * meters_per_pulse
@@ -485,7 +608,7 @@ class MecanumDrive(Component):
                 # Convert wheel displacements to robot motion
                 lx = (self.wheel_base + self.track_width) / 2
 
-                if self.pattern == 'x':
+                if self.pattern == "x":
                     # X pattern kinematics
                     dx = (dfl + dfr + dbl + dbr) / 4.0
                     dy = (-dfl + dfr + dbl - dbr) / 4.0
@@ -523,6 +646,93 @@ class MecanumDrive(Component):
                     vy = dy / period
                     vtheta = dtheta / period
                     self._robot._state.odom.set_velocity(vx, vy, vtheta)
+
+                    # ========== Position Control Logic ==========
+                    # If position control active, calculate and send motor position commands
+                    with self._position_control_lock:
+                        if self._position_control_active:
+                            # Calculate displacement traveled so far (in odometry frame)
+                            traveled_x_odom = current.x - self._position_start_x
+                            traveled_y_odom = current.y - self._position_start_y
+                            traveled_theta = current.theta - self._position_start_theta
+
+                            # Normalize angle
+                            while traveled_theta > math.pi:
+                                traveled_theta -= 2 * math.pi
+                            while traveled_theta < -math.pi:
+                                traveled_theta += 2 * math.pi
+
+                            # Calculate target in odometry frame
+                            cos_start = math.cos(self._position_start_theta)
+                            sin_start = math.sin(self._position_start_theta)
+
+                            target_x_odom = self._position_start_x + self._target_dx * cos_start - self._target_dy * sin_start
+                            target_y_odom = self._position_start_y + self._target_dx * sin_start + self._target_dy * cos_start
+                            target_theta = self._position_start_theta + self._target_dtheta
+
+                            # Calculate remaining distance (in odometry frame)
+                            remaining_x_odom = target_x_odom - current.x
+                            remaining_y_odom = target_y_odom - current.y
+                            remaining_theta = target_theta - current.theta
+
+                            # Normalize angle
+                            while remaining_theta > math.pi:
+                                remaining_theta -= 2 * math.pi
+                            while remaining_theta < -math.pi:
+                                remaining_theta += 2 * math.pi
+
+                            # Convert remaining distance to robot frame
+                            cos_current = math.cos(current.theta)
+                            sin_current = math.sin(current.theta)
+
+                            remaining_dx_robot = remaining_x_odom * cos_current + remaining_y_odom * sin_current
+                            remaining_dy_robot = -remaining_x_odom * sin_current + remaining_y_odom * cos_current
+
+                            # Check if reached target
+                            pos_error = math.sqrt(remaining_dx_robot**2 + remaining_dy_robot**2)
+                            angle_error = abs(remaining_theta)
+
+                            if pos_error < 0.005 and angle_error < 0.02:  # 5mm, ~1 degree
+                                # Target reached, deactivate position control
+                                self._position_control_active = False
+                                # Stop motors
+                                for motor in self._motors:
+                                    motor.run(0, acceleration=self.acceleration)
+                            else:
+                                # Calculate required wheel displacements (mecanum inverse kinematics)
+                                lx = (self.wheel_base + self.track_width) / 2
+
+                                if self.pattern == "x":
+                                    # X pattern: FL\\ FR/ BL/ BR\\
+                                    dfl_wheel = remaining_dx_robot - remaining_dy_robot - remaining_theta * lx
+                                    dfr_wheel = remaining_dx_robot + remaining_dy_robot + remaining_theta * lx
+                                    dbl_wheel = remaining_dx_robot + remaining_dy_robot - remaining_theta * lx
+                                    dbr_wheel = remaining_dx_robot - remaining_dy_robot + remaining_theta * lx
+                                else:  # diamond
+                                    # Diamond pattern: FL/ FR\\ BL\\ BR/
+                                    dfl_wheel = remaining_dx_robot + remaining_dy_robot - remaining_theta * lx
+                                    dfr_wheel = remaining_dx_robot - remaining_dy_robot + remaining_theta * lx
+                                    dbl_wheel = remaining_dx_robot - remaining_dy_robot - remaining_theta * lx
+                                    dbr_wheel = remaining_dx_robot + remaining_dy_robot + remaining_theta * lx
+
+                                # Convert wheel linear displacement to pulses
+                                pulses_per_meter = self.pulses_per_rev / (2 * math.pi * self.wheel_radius)
+
+                                pulses_fl = int(dfl_wheel * pulses_per_meter)
+                                pulses_fr = int(dfr_wheel * pulses_per_meter)
+                                pulses_bl = int(dbl_wheel * pulses_per_meter)
+                                pulses_br = int(dbr_wheel * pulses_per_meter)
+
+                                # Convert linear speed to RPM
+                                omega = self._target_speed / self.wheel_radius  # rad/s
+                                speed_rpm = int(omega * (60.0 / (2.0 * math.pi)))
+
+                                # Send non-blocking position commands to motors
+                                # Right side motors (FR, BR) are mirrored, so negate
+                                self.fl.set_target_position_relative(pulses_fl, speed_rpm, self.acceleration)
+                                self.fr.set_target_position_relative(-pulses_fr, speed_rpm, self.acceleration)
+                                self.bl.set_target_position_relative(pulses_bl, speed_rpm, self.acceleration)
+                                self.br.set_target_position_relative(-pulses_br, speed_rpm, self.acceleration)
 
                 # Save encoder values
                 self._last_encoder = encoder

@@ -5,6 +5,8 @@ Provides easy access to lidar scan data for robots.
 
 import logging
 import math
+import random
+import numpy as np
 from typing import Optional, Dict, Tuple
 from evabot.components.base import Component
 from evabot.hardware import LidarDevice
@@ -299,27 +301,27 @@ class RPLidarC1(Component):
 
     def check_wall(self, angle: float, sample_range: float = 30,
                    min_points: int = 10, max_residual: float = 0.02,
-                   max_angle_deviation: float = 30.0) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+                   max_angle_deviation: float = 30.0, debug: bool = False) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
-        Detect wall at angle using line segment extraction with PCA.
+        Detect wall at angle using RANSAC line fitting.
 
-        Samples points in angular range, splits by range discontinuities,
-        fits lines using PCA, and returns the closest valid wall segment
-        that is roughly perpendicular to the viewing direction.
+        Samples points in angular range and uses RANSAC to robustly fit a line
+        while automatically rejecting outliers (corners, edges, noise). Returns
+        perpendicular distance and angular misalignment to detected wall.
 
         Args:
             angle: Direction to check in degrees (0=front, 90=right, 180=back, 270=left)
             sample_range: Angular range to sample (±degrees from angle, default ±30°)
-            min_points: Minimum points for valid segment (default 10)
-            max_residual: Maximum RMS residual for line fit in meters (default 0.02m = 2cm)
+            min_points: Minimum inliers required for valid fit (default 10)
+            max_residual: Maximum distance from point to line to be inlier (default 0.02m = 2cm)
             max_angle_deviation: Maximum angle between wall and expected perpendicular (default 30°)
 
         Returns:
             (distance, angle_deg, quality) tuple - any value can be None:
                 - distance: Perpendicular distance to wall in meters (or None)
                 - angle_deg: Angular misalignment in degrees (or None) (positive = turn clockwise to align)
-                - quality: Fit quality 0-1 based on residual (or None) (1 = perfect, 0 = at threshold)
-            Returns (None, None, None) if no valid wall (corner, edge, parallel wall, poor fit)
+                - quality: Fit quality 0-1 based on inlier ratio (or None) (1 = all points, 0 = min inliers)
+            Returns (None, None, None) if no valid wall (parallel wall, too few inliers)
 
         Example:
             >>> # Check right wall and align with it
@@ -334,47 +336,71 @@ class RPLidarC1(Component):
             >>>     print("No wall detected - might be at corner or opening")
 
         Note:
-            - Uses PCA (Principal Component Analysis) for robust line fitting
-            - Automatically rejects corners/edges via range discontinuity detection
+            - Uses RANSAC (Random Sample Consensus) for robust line fitting
+            - Automatically rejects corners/edges as outliers
             - Rejects walls that are parallel to viewing direction
-            - Quality metric helps distinguish good vs marginal wall detections
+            - Quality based on inlier ratio (what fraction of points fit the wall)
         """
         try:
             # 1. Sample points in angular range
             points = self._sample_points_in_range(angle - sample_range, angle + sample_range)
 
+            if debug:
+                print(f"    [DEBUG check_wall({angle}°) - RANSAC mode]")
+                print(f"      1. Sampled {len(points)} points in range [{angle-sample_range}°, {angle+sample_range}°]")
+
             if len(points) < min_points:
+                if debug:
+                    print(f"      ✗ Not enough points (need {min_points})")
                 return (None, None, None)
 
-            # 2. Split by range discontinuity (10cm jumps indicate corners/edges)
-            segments = self._split_by_discontinuity(points, threshold=0.10)
+            # 2. Fit line using RANSAC (automatically handles corners/outliers)
+            if debug:
+                print(f"      2. Fitting line with RANSAC")
 
-            # 3. Fit line to each segment using PCA
-            fitted_segments = []
-            for seg_points in segments:
-                if len(seg_points) < min_points:
-                    continue
+            fit_result = self._fit_line_ransac(points, max_residual,
+                                                min_inliers=min_points,
+                                                debug=debug)
 
-                fit_result = self._fit_line_pca(seg_points, max_residual)
-                if fit_result is not None:
-                    fitted_segments.append((seg_points, fit_result))
-
-            if not fitted_segments:
+            if fit_result is None:
+                if debug:
+                    print(f"      ✗ RANSAC failed to find valid line")
                 return (None, None, None)
 
-            # 4. Select best segment (closest valid wall)
-            best = self._select_best_segment(fitted_segments, angle, max_angle_deviation)
-
-            if best is None:
-                return (None, None, None)
-
-            seg_points, fit_result = best
             a, b, c = fit_result['line']
 
-            # 5. Calculate perpendicular distance from robot (0, 0) to line ax + by + c = 0
+            # 3. Check if wall is roughly perpendicular to viewing direction
+            line_angle_rad = math.atan2(-b, a)
+            line_angle_deg = math.degrees(line_angle_rad) % 360
+
+            expected_angle = angle % 360
+            angle_diff = abs(line_angle_deg - expected_angle)
+
+            # Handle wrap-around (e.g., 350° and 10° are 20° apart, not 340°)
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff
+
+            # Handle bidirectional lines (e.g., 89° and 270° are same line orientation)
+            # Lines have 180° rotational symmetry, so also check angle+180
+            angle_diff_flipped = abs(abs(line_angle_deg - expected_angle) - 180)
+            if angle_diff_flipped > 180:
+                angle_diff_flipped = 360 - angle_diff_flipped
+
+            # Use minimum difference (either direct or flipped)
+            angle_diff = min(angle_diff, angle_diff_flipped)
+
+            if debug:
+                print(f"      3. Perpendicularity check: line={line_angle_deg:.1f}°, expected={expected_angle:.0f}°, diff={angle_diff:.1f}°")
+
+            if angle_diff > max_angle_deviation:
+                if debug:
+                    print(f"      ✗ Wall not perpendicular (deviation {angle_diff:.1f}° > {max_angle_deviation}°)")
+                return (None, None, None)
+
+            # 4. Calculate perpendicular distance from robot (0, 0) to line ax + by + c = 0
             distance = abs(c) / math.sqrt(a * a + b * b)
 
-            # 6. Calculate angle error
+            # 5. Calculate angle error
             # Line normal is (a, b), line direction is perpendicular: (-b, a)
             line_angle_rad = math.atan2(-b, a)  # Angle of line direction
             expected_angle_rad = math.radians(angle)
@@ -396,8 +422,12 @@ class RPLidarC1(Component):
 
             angle_error_deg = math.degrees(angle_error_rad)
 
-            # 7. Quality metric (1.0 = perfect fit, 0.0 = at threshold)
-            quality = max(0.0, 1.0 - fit_result['residual'] / max_residual)
+            # 6. Quality metric based on inlier ratio (1.0 = all points, 0.0 = min inliers)
+            inlier_ratio = fit_result['inlier_ratio']
+            quality = inlier_ratio
+
+            if debug:
+                print(f"      ✓ Wall detected: distance={distance*100:.1f}cm, angle_error={angle_error_deg:+.1f}°, quality={quality:.2f}")
 
             return (distance, angle_error_deg, quality)
 
@@ -434,7 +464,7 @@ class RPLidarC1(Component):
 
         return points
 
-    def _split_by_discontinuity(self, points: list, threshold: float) -> list:
+    def _split_by_discontinuity(self, points: list, threshold: float, debug: bool = False) -> list:
         """Split points into segments by range discontinuities."""
         if not points:
             return []
@@ -442,12 +472,21 @@ class RPLidarC1(Component):
         segments = []
         current_segment = [points[0]]
 
-        for i in range(1, len(points)):
-            r_prev = points[i - 1][2]
-            r_curr = points[i][2]
+        if debug:
+            print(f"         [Discontinuity Detection]")
+            print(f"         Threshold: {threshold*100:.1f}cm")
 
-            if abs(r_curr - r_prev) > threshold:
+        for i in range(1, len(points)):
+            angle_prev = points[i - 1][1]
+            r_prev = points[i - 1][2]
+            angle_curr = points[i][1]
+            r_curr = points[i][2]
+            diff = abs(r_curr - r_prev)
+
+            if diff > threshold:
                 # Discontinuity - save current segment and start new
+                if debug:
+                    print(f"         Split at {angle_prev:.0f}°→{angle_curr:.0f}°: {r_prev*100:.1f}cm → {r_curr*100:.1f}cm (Δ={diff*100:.1f}cm)")
                 segments.append(current_segment)
                 current_segment = [points[i]]
             else:
@@ -524,12 +563,124 @@ class RPLidarC1(Component):
             'residual': rms_residual,
         }
 
+    def _fit_line_ransac(self, points: list, max_residual: float,
+                         max_iterations: int = 100, min_inliers: int = 10,
+                         debug: bool = False) -> Optional[Dict]:
+        """
+        Fit line to points using RANSAC (Random Sample Consensus).
+
+        More robust than PCA when data contains outliers (corners, edges, noise).
+        Randomly samples point pairs, counts inliers, and selects best fit.
+
+        Args:
+            points: List of (x, y, r) tuples
+            max_residual: Maximum distance from point to line to be inlier (meters)
+            max_iterations: Number of RANSAC iterations
+            min_inliers: Minimum inliers required for valid fit
+            debug: Print debug information
+
+        Returns:
+            Dict with 'line' (a,b,c), 'residual', and 'inliers' count, or None
+        """
+        if len(points) < 2:
+            return None
+
+        # Convert to numpy for faster computation
+        xy = np.array([(p[0], p[1]) for p in points])
+        n_points = len(points)
+
+        best_inliers = []
+        best_line = None
+        best_residual = float('inf')
+
+        if debug:
+            print(f"         [RANSAC] {n_points} points, {max_iterations} iterations, threshold={max_residual*100:.1f}cm")
+
+        for iteration in range(max_iterations):
+            # Randomly sample 2 points
+            idx = random.sample(range(n_points), 2)
+            p1 = xy[idx[0]]
+            p2 = xy[idx[1]]
+
+            # Fit line through these 2 points: ax + by + c = 0
+            # Line direction: p2 - p1
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+
+            # Normal to line (perpendicular)
+            # If line direction is (dx, dy), normal is (-dy, dx)
+            a = -dy
+            b = dx
+
+            # Normalize
+            norm = math.sqrt(a*a + b*b)
+            if norm < 1e-9:
+                continue  # Points too close
+
+            a /= norm
+            b /= norm
+
+            # c from line passing through p1
+            c = -(a * p1[0] + b * p1[1])
+
+            # Count inliers: points within max_residual distance
+            distances = np.abs(xy[:, 0] * a + xy[:, 1] * b + c)
+            inlier_mask = distances <= max_residual
+            inlier_indices = np.where(inlier_mask)[0]
+            n_inliers = len(inlier_indices)
+
+            # Keep if best so far
+            if n_inliers > len(best_inliers):
+                best_inliers = inlier_indices
+                best_line = (a, b, c)
+                best_residual = np.mean(distances[inlier_mask])
+
+        # Check if we found enough inliers
+        if len(best_inliers) < min_inliers:
+            if debug:
+                print(f"         [RANSAC] FAILED: only {len(best_inliers)} inliers (need {min_inliers})")
+            return None
+
+        # Refine line fit using all inliers (least squares)
+        inlier_points = xy[best_inliers]
+        x_mean = np.mean(inlier_points[:, 0])
+        y_mean = np.mean(inlier_points[:, 1])
+
+        # Center points
+        xy_centered = inlier_points - np.array([x_mean, y_mean])
+
+        # SVD to find best fit line (more stable than eigenvalue decomposition)
+        _, _, Vt = np.linalg.svd(xy_centered)
+
+        # Normal to line is second singular vector (least variance direction)
+        a, b = Vt[1, :]
+
+        # c from line passing through centroid
+        c = -(a * x_mean + b * y_mean)
+
+        # Compute final RMS residual on inliers
+        distances = np.abs(inlier_points[:, 0] * a + inlier_points[:, 1] * b + c)
+        rms_residual = np.sqrt(np.mean(distances ** 2))
+
+        if debug:
+            print(f"         [RANSAC] SUCCESS: {len(best_inliers)} inliers, residual={rms_residual*100:.2f}cm")
+
+        return {
+            'line': (a, b, c),
+            'residual': rms_residual,
+            'inliers': len(best_inliers),
+            'inlier_ratio': len(best_inliers) / n_points
+        }
+
     def _select_best_segment(self, fitted_segments: list, viewing_angle: float,
-                            max_angle_deviation: float) -> Optional[tuple]:
+                            max_angle_deviation: float, debug: bool = False) -> Optional[tuple]:
         """Select closest segment that is roughly perpendicular to viewing angle."""
         valid_segments = []
 
-        for seg_points, fit_result in fitted_segments:
+        if debug:
+            print(f"      4. Checking {len(fitted_segments)} fitted segments for perpendicularity")
+
+        for i, (seg_points, fit_result) in enumerate(fitted_segments):
             a, b, c = fit_result['line']
 
             # Calculate line orientation angle
@@ -547,20 +698,33 @@ class RPLidarC1(Component):
             if angle_diff > 90:
                 angle_diff = 180 - angle_diff
 
-            # Reject if wall is too parallel to viewing direction
-            if angle_diff > max_angle_deviation:
-                continue
-
             # Calculate distance to segment
             distance = abs(c) / math.sqrt(a * a + b * b)
 
+            if debug:
+                print(f"         Segment {i}: line_angle={line_angle_deg:.1f}°, deviation={angle_diff:.1f}°, distance={distance*100:.1f}cm", end="")
+
+            # Reject if wall is too parallel to viewing direction
+            if angle_diff > max_angle_deviation:
+                if debug:
+                    print(f" → REJECT (deviation > {max_angle_deviation}°)")
+                continue
+
+            if debug:
+                print(f" → VALID")
+
             valid_segments.append((distance, seg_points, fit_result))
+
+        if debug:
+            print(f"      {len(valid_segments)} segments passed perpendicularity check")
 
         if not valid_segments:
             return None
 
         # Return closest valid segment
         valid_segments.sort(key=lambda x: x[0])  # Sort by distance
+        if debug:
+            print(f"      ✓ Selected closest segment: {valid_segments[0][0]*100:.1f}cm")
         return (valid_segments[0][1], valid_segments[0][2])
 
     @property

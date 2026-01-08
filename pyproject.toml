@@ -29,6 +29,7 @@ classifiers = [
 
 dependencies = [
     "python-can>=4.0.0",
+    "numpy>=1.20.0",
 ]
 
 [project.optional-dependencies]
@@ -53,8 +54,8 @@ robot = "evabot.tools.remote_run:main"
 
 [tool.setuptools]
 packages = ["evabot", "evabot.components", "evabot.components.motors",
-            "evabot.components.drive", "evabot.hardware", "evabot.behaviors",
-            "evabot.tools"]
+            "evabot.components.drive", "evabot.components.sensors",
+            "evabot.hardware", "evabot.behaviors", "evabot.tools"]
 
 [tool.setuptools.package-data]
 evabot = ["py.typed"]
