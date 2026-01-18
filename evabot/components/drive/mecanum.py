@@ -788,7 +788,7 @@ class MecanumDrive(Component):
 
                                 # 3. Convert velocities to wheel displacements for lookahead window
                                 lookahead_time = (
-                                    0.2  # 100ms lookahead (re-planned every 20ms)
+                                    0.1  # 100ms lookahead (re-planned every 20ms)
                                 )
 
                                 lx = (self.wheel_base + self.track_width) / 2
