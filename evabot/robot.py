@@ -157,6 +157,120 @@ class Robot:
         self._actuator = actuator_component
         self._register_component(actuator_component)
 
+    # ========== Navigation ==========
+
+    def move_to_wall(
+        self,
+        direction: int,
+        stop_distance: float = 0.125,
+        speed: float = 0.3,
+        acceleration: int = 50,
+        timeout: float = 10.0,
+        safe_distance: float = 0.09,
+    ):
+        """
+        Move toward a wall using lidar feedback.
+
+        Drives in the given direction while:
+        - Stopping at stop_distance from the ahead wall
+        - Pushing away from any side wall closer than stop_distance
+        - Aligning theta using all visible walls
+        - Emergency stopping if ahead wall < safe_distance
+
+        Args:
+            direction: Lidar angle to move toward (0=front, 90=right, 180=back, 270=left)
+            stop_distance: Distance from wall to stop at (meters, default 0.125)
+            speed: Movement speed (m/s, default 0.3)
+            acceleration: Motor acceleration (0-255, default 50)
+            timeout: Maximum time to move (seconds, default 10)
+            safe_distance: Emergency stop distance (meters, default 0.09)
+
+        Returns:
+            True if stopped at wall, False if timeout or safety stop
+
+        Usage:
+            robot.move_to_wall(0)           # move forward to wall
+            robot.move_to_wall(270)         # move left to wall
+            robot.move_to_wall(90, speed=0.5)  # move right, faster
+
+        Requires:
+            robot.drive and robot.lidar must be set up
+        """
+        if self._drive is None or self._lidar is None:
+            raise RuntimeError("move_to_wall requires both drive and lidar")
+
+        # Direction constants
+        dir_delta = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}
+        opposite = {0: 180, 180: 0, 90: 270, 270: 90}
+
+        dx_dir, dy_dir = dir_delta[direction]
+        opp = opposite[direction]
+
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            # Read ahead wall
+            d_ahead, a_ahead, q_ahead = self._lidar.check_wall(direction)
+
+            # Emergency stop
+            if d_ahead is not None and d_ahead < safe_distance:
+                self._drive.halt()
+                return False
+
+            # Arrived
+            if d_ahead is not None and d_ahead <= stop_distance + 0.01:
+                self._drive.halt()
+                return True
+
+            # Forward target
+            if d_ahead is not None:
+                remaining = max(d_ahead - stop_distance, 0.01)
+            else:
+                remaining = 0.15  # half cell default
+            target_dx = dx_dir * remaining
+            target_dy = dy_dir * remaining
+
+            # Read all other walls: theta alignment + push away
+            angle_samples = []
+            if a_ahead is not None and q_ahead is not None and q_ahead > 0.5:
+                angle_samples.append(a_ahead)
+
+            for wall_dir in [0, 90, 180, 270]:
+                if wall_dir == direction:
+                    continue
+                d_w, a_w, q_w = self._lidar.check_wall(wall_dir)
+                if d_w is None:
+                    continue
+                if a_w is not None and q_w is not None and q_w > 0.5:
+                    angle_samples.append(a_w)
+                if wall_dir != opp and d_w < stop_distance and q_w is not None and q_w > 0.3:
+                    push = (stop_distance - d_w) * 1.0
+                    wx, wy = dir_delta[wall_dir]
+                    target_dx -= wx * push
+                    target_dy -= wy * push
+
+            # Theta correction
+            dtheta_deg = 0.0
+            if angle_samples:
+                avg = sum(angle_samples) / len(angle_samples)
+                dtheta_deg = max(-15.0, min(15.0, avg))
+
+            # Send target
+            self._drive.set_target_position(
+                dx=target_dx, dy=target_dy, dtheta_deg=dtheta_deg,
+                speed=speed, acceleration=acceleration,
+            )
+
+            # Position control finished (no wall ahead, moved full distance)
+            if not self._drive.is_position_control_active():
+                self._drive.halt()
+                return True
+
+            time.sleep(0.01)
+
+        self._drive.halt()
+        return False
+
     # ========== Control Loops ==========
 
     def loop(self, rate: float = 10):
