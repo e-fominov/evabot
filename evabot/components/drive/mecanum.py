@@ -54,13 +54,13 @@ class MecanumDrive(Component):
 
     def __init__(
         self,
-        fl: int,
-        fr: int,
-        bl: int,
-        br: int,
-        wheel_radius: float = 0.04,  # meters (50mm)
-        wheel_base: float = 0.20,  # meters (200mm, front-back)
-        track_width: float = 0.20,  # meters (200mm, left-right)
+        fl: int = 3,
+        fr: int = 4,
+        bl: int = 1,
+        br: int = 2,
+        wheel_radius: float = 0.030,  # meters (60mm mecanum wheels)
+        wheel_base: float = 0.065,  # meters (65mm, front-to-back wheel centers)
+        track_width: float = 0.150,  # meters (150mm, left-to-right wheel centers)
         pulses_per_rev: int = 3200,  # Servo42D: 200 steps × 16 subdivisions
         channel: str = "can0",
         bitrate: int = 500000,
@@ -71,10 +71,10 @@ class MecanumDrive(Component):
         Initialize mecanum drive.
 
         Args:
-            fl, fr, bl, br: CAN IDs for motors (front-left, front-right, back-left, back-right)
-            wheel_radius: Wheel radius in meters (default 50mm)
-            wheel_base: Distance front-to-back in meters (default 200mm)
-            track_width: Distance left-to-right in meters (default 200mm)
+            fl, fr, bl, br: CAN IDs for motors (front-left=3, front-right=4, back-left=1, back-right=2)
+            wheel_radius: Wheel radius in meters (default 30mm, 60mm mecanum wheels)
+            wheel_base: Distance front-to-back wheel centers in meters (default 65mm)
+            track_width: Distance left-to-right wheel centers in meters (default 150mm)
             pulses_per_rev: Encoder pulses per wheel revolution (default 3200)
             channel: CAN channel (default 'can0')
             bitrate: CAN bitrate (default 500000)
