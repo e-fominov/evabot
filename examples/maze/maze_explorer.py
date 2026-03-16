@@ -20,9 +20,10 @@ CENTER_DIST = 0.125
 # Movement
 MOVE_SPEED = 0.3
 
-# Payload
+# Colors
 DROP_COLOR = "blue"
-DROP_CONFIDENCE = 0.05  # match_color threshold
+FINISH_COLOR = "red"
+COLOR_CONFIDENCE = 0.05  # match_color threshold
 DROPPER_MOTOR_ID = 5
 DROPPER_SPEED = 30
 DROPPER_TIME = 1.0
@@ -90,6 +91,10 @@ def main():
     payload_dropped = False
 
     time.sleep(3)
+    print()
+    print("Robot ready. Press ENTER to start exploring...")
+    input()
+    print("GO!")
 
     cell_x, cell_y = 0, 0
     move_times = []
@@ -133,10 +138,15 @@ def main():
             move_times.append(t_move)
             cell_x, cell_y = nx, ny
 
-            # Check for blue zone after arriving
+            # Check for finish (red)
+            if camera.match_color(FINISH_COLOR) > COLOR_CONFIDENCE:
+                print(f"  RED ZONE - FINISH!")
+                break
+
+            # Check for blue zone - drop payload
             if not payload_dropped:
                 score = camera.match_color(DROP_COLOR)
-                if score > DROP_CONFIDENCE:
+                if score > COLOR_CONFIDENCE:
                     print(f"  BLUE ZONE detected (confidence: {score:.2f})! Dropping payload...")
                     dropper.run(DROPPER_SPEED)
                     time.sleep(DROPPER_TIME)
