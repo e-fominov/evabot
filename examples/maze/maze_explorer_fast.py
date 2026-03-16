@@ -106,6 +106,7 @@ def main():
     cell_x, cell_y = 0, 0
     path = []
     move_times = []
+    finished = False
 
     try:
         t_total_start = time.time()
@@ -159,11 +160,19 @@ def main():
                     move_times.append(t_move)
                     cell_x, cell_y = prev_x, prev_y
 
+                    # Check for finish (red) during backtracking
+                    if camera.match_color(FINISH_COLOR) > COLOR_CONFIDENCE:
+                        print(f"  RED ZONE - FINISH!")
+                        finished = True
+                        break
+
                     if get_unvisited_neighbors(cell_x, cell_y):
                         print(f"    Found unexplored path at ({cell_x}, {cell_y})")
                         break
                 else:
                     print("  Fully explored!")
+                    break
+                if finished:
                     break
                 continue
 
@@ -174,6 +183,7 @@ def main():
             # Check for finish (red)
             if camera.match_color(FINISH_COLOR) > COLOR_CONFIDENCE:
                 print(f"  RED ZONE - FINISH!")
+                finished = True
                 break
 
             # Check for blue zone - drop payload
