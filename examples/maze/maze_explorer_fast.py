@@ -159,6 +159,7 @@ def main():
                     t_move = time.time() - t_move
                     move_times.append(t_move)
                     cell_x, cell_y = prev_x, prev_y
+                    time.sleep(0.2)  # let camera capture fresh frame
 
                     # Check for finish (red) during backtracking
                     if camera.match_color(FINISH_COLOR) > COLOR_CONFIDENCE:
