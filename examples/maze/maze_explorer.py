@@ -97,12 +97,13 @@ def main():
     print("GO!")
 
     cell_x, cell_y = 0, 0
+    path = []  # stack of (cell_x, cell_y, direction_taken) for backtracking
     move_times = []
 
     try:
         t_total_start = time.time()
 
-        for step in range(100):
+        for step in range(200):
             t_step_start = time.time()
             print()
             print(f"--- CELL ({cell_x}, {cell_y}) - Step {step + 1} ---")
@@ -122,21 +123,49 @@ def main():
                 _, has_wall = wall_scan[d]
                 set_wall(cell_x, cell_y, d, has_wall)
 
-            # Find next
+            # Find unvisited neighbor
             neighbors = get_unvisited_neighbors(cell_x, cell_y)
-            if not neighbors:
-                print("  No unvisited neighbors - done!")
+
+            if neighbors:
+                # Go forward to unvisited cell
+                direction, nx, ny = neighbors[0]
+                print(f"  Next: {DIR_NAMES[direction]} -> ({nx}, {ny})")
+                path.append((cell_x, cell_y, direction))
+
+                t_move = time.time()
+                robot.move_to_wall(direction, stop_distance=CENTER_DIST, speed=MOVE_SPEED)
+                t_move = time.time() - t_move
+                move_times.append(t_move)
+                cell_x, cell_y = nx, ny
+
+            elif path:
+                # Dead end - backtrack until we find a cell with unvisited neighbors
+                print("  Dead end, backtracking...")
+                while path:
+                    prev_x, prev_y, came_from = path.pop()
+                    back_dir = OPPOSITE[came_from]
+                    print(f"    Back {DIR_NAMES[back_dir]} -> ({prev_x}, {prev_y})")
+
+                    t_move = time.time()
+                    robot.move_to_wall(back_dir, stop_distance=CENTER_DIST, speed=MOVE_SPEED)
+                    t_move = time.time() - t_move
+                    move_times.append(t_move)
+                    cell_x, cell_y = prev_x, prev_y
+
+                    # Does this cell have unvisited neighbors?
+                    if get_unvisited_neighbors(cell_x, cell_y):
+                        print(f"    Found unexplored path at ({cell_x}, {cell_y})")
+                        break
+                else:
+                    # Backtracked all the way to start, nothing left
+                    print("  Fully explored!")
+                    break
+                continue  # re-enter loop to scan and move forward
+
+            else:
+                # No neighbors and no path to backtrack
+                print("  Fully explored!")
                 break
-
-            direction, nx, ny = neighbors[0]
-            print(f"  Next: {DIR_NAMES[direction]} -> ({nx}, {ny})")
-
-            # Move using robot.move_to_wall()
-            t_move = time.time()
-            robot.move_to_wall(direction, stop_distance=CENTER_DIST, speed=MOVE_SPEED)
-            t_move = time.time() - t_move
-            move_times.append(t_move)
-            cell_x, cell_y = nx, ny
 
             # Check for finish (red)
             if camera.match_color(FINISH_COLOR) > COLOR_CONFIDENCE:
