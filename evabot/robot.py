@@ -167,6 +167,7 @@ class Robot:
         acceleration: int = 50,
         timeout: float = 10.0,
         safe_distance: float = 0.09,
+        max_travel: float = None,
         debug: bool = False,
     ):
         """
@@ -177,6 +178,7 @@ class Robot:
         - Pushing away from any side wall closer than stop_distance
         - Aligning theta using all visible walls
         - Emergency stopping if ahead wall < safe_distance
+        - Stopping after max_travel distance (for cell-by-cell movement)
 
         Args:
             direction: Lidar angle to move toward (0=front, 90=right, 180=back, 270=left)
@@ -185,6 +187,7 @@ class Robot:
             acceleration: Motor acceleration (0-255, default 50)
             timeout: Maximum time to move (seconds, default 10)
             safe_distance: Emergency stop distance (meters, default 0.09)
+            max_travel: Maximum distance to travel (meters, default None = no limit)
             debug: Print wall readings each cycle (default False)
 
         Returns:
@@ -249,6 +252,9 @@ class Robot:
                 remaining = max(d_ahead - stop_distance, 0.01)
             else:
                 remaining = 0.15  # half cell default
+            # Cap to max_travel so we don't skip cells
+            if max_travel is not None:
+                remaining = min(remaining, max_travel)
             target_dx = dx_dir * remaining
             target_dy = dy_dir * remaining
 

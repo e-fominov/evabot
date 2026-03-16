@@ -7,8 +7,10 @@ from evabot import Robot, MecanumDrive, RPLidarC1, Servo42D
 from evabot.components.sensors import Camera
 
 # мой лабиринт с ячейками 30 см
+CELL_SIZE = 0.30  # размер ячейки
 WALL_DIST = 0.25  # если стена ближе 25см - это стена
 STOP_DIST = 0.145  # останавливаемся в 14.5см от стены
+SPEED = 0.2  # макс скорость 20 см/сек
 
 # направления для лидара
 FRONT = 0
@@ -40,7 +42,12 @@ def check_walls(robot):
     result = {}
     for d in [FRONT, RIGHT, BACK, LEFT]:
         dist, _, quality = robot.lidar.check_wall(d)
-        if dist is not None and quality is not None and quality > 0.3 and dist < WALL_DIST:
+        if (
+            dist is not None
+            and quality is not None
+            and quality > 0.3
+            and dist < WALL_DIST
+        ):
             result[d] = True
         else:
             result[d] = False
@@ -103,7 +110,9 @@ try:
             d, nx, ny = nxt
             print(f"  еду {names[d]} в ({nx},{ny})")
             path.append((x, y, d))
-            robot.move_to_wall(d, stop_distance=STOP_DIST, speed=0.2)
+            robot.move_to_wall(
+                d, stop_distance=STOP_DIST, speed=SPEED, max_travel=CELL_SIZE
+            )
             x, y = nx, ny
 
         elif path:
@@ -113,7 +122,9 @@ try:
                 px, py, came_from = path.pop()
                 back = opposite[came_from]
                 print(f"  назад {names[back]} в ({px},{py})")
-                robot.move_to_wall(back, stop_distance=STOP_DIST, speed=0.2)
+                robot.move_to_wall(
+                    back, stop_distance=STOP_DIST, speed=0.2, max_travel=CELL_SIZE
+                )
                 x, y = px, py
                 time.sleep(0.2)
 

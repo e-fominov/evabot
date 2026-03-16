@@ -103,7 +103,7 @@ try:
             d, nx, ny = nxt
             print(f"  going {names[d]} to ({nx},{ny})")
             path.append((x, y, d))
-            robot.move_to_wall(d, stop_distance=STOP_DIST, speed=0.2)
+            robot.move_to_wall(d, stop_distance=STOP_DIST, speed=0.2, max_travel=0.30)
             x, y = nx, ny
 
         elif path:
@@ -113,7 +113,7 @@ try:
                 px, py, came_from = path.pop()
                 back = opposite[came_from]
                 print(f"  back {names[back]} to ({px},{py})")
-                robot.move_to_wall(back, stop_distance=STOP_DIST, speed=0.2)
+                robot.move_to_wall(back, stop_distance=STOP_DIST, speed=0.2, max_travel=0.30)
                 x, y = px, py
                 time.sleep(0.2)
 

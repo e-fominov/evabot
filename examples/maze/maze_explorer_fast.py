@@ -141,7 +141,7 @@ def main():
 
                 t_move = time.time()
                 robot.move_to_wall(direction, stop_distance=CENTER_DIST,
-                                   speed=MOVE_SPEED, debug=True)
+                                   speed=MOVE_SPEED, max_travel=CELL_SIZE, debug=True)
                 t_move = time.time() - t_move
                 move_times.append(t_move)
                 cell_x, cell_y = nx, ny
@@ -155,7 +155,7 @@ def main():
 
                     t_move = time.time()
                     robot.move_to_wall(back_dir, stop_distance=CENTER_DIST,
-                                       speed=MOVE_SPEED, debug=True)
+                                       speed=MOVE_SPEED, max_travel=CELL_SIZE, debug=True)
                     t_move = time.time() - t_move
                     move_times.append(t_move)
                     cell_x, cell_y = prev_x, prev_y
