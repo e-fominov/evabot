@@ -9,7 +9,8 @@ Usage:
 """
 
 import time
-from evabot import Robot, MecanumDrive, RPLidarC1
+from evabot import Robot, MecanumDrive, RPLidarC1, Servo42D
+from evabot.components.sensors import Camera
 
 # Maze parameters
 CELL_SIZE = 0.30
@@ -18,6 +19,13 @@ CENTER_DIST = 0.125
 
 # Movement
 MOVE_SPEED = 0.3
+
+# Payload
+DROP_COLOR = "blue"
+DROP_CONFIDENCE = 0.05  # match_color threshold
+DROPPER_MOTOR_ID = 5
+DROPPER_SPEED = 30
+DROPPER_TIME = 1.0
 
 # Directions (lidar angles)
 FRONT = 0
@@ -72,6 +80,15 @@ def main():
     robot.drive = MecanumDrive()
     robot.lidar = RPLidarC1(max_range=1.0)
     robot.start()
+
+    camera = Camera()
+    camera.start()
+
+    dropper = Servo42D(DROPPER_MOTOR_ID)
+    dropper.start()
+
+    payload_dropped = False
+
     time.sleep(3)
 
     cell_x, cell_y = 0, 0
@@ -116,6 +133,17 @@ def main():
             move_times.append(t_move)
             cell_x, cell_y = nx, ny
 
+            # Check for blue zone after arriving
+            if not payload_dropped:
+                score = camera.match_color(DROP_COLOR)
+                if score > DROP_CONFIDENCE:
+                    print(f"  BLUE ZONE detected (confidence: {score:.2f})! Dropping payload...")
+                    dropper.run(DROPPER_SPEED)
+                    time.sleep(DROPPER_TIME)
+                    dropper.run(0)
+                    payload_dropped = True
+                    print("  Payload dropped!")
+
             t_step = time.time() - t_step_start
             print(f"  Step: {t_step:.2f}s (move: {t_move:.2f}s, scan: {t_scan*1000:.0f}ms)")
 
@@ -134,6 +162,8 @@ def main():
         print(f"\nInterrupted after {t_total:.1f}s, {len(visited)} cells")
 
     robot.drive.halt()
+    dropper.stop()
+    camera.stop()
     time.sleep(0.3)
     robot.stop()
 
