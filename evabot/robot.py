@@ -224,6 +224,9 @@ class Robot:
             time.sleep(0.15)
         self._drive.halt()
 
+        # Record starting ahead distance for max_travel tracking
+        start_ahead, _, _ = self._lidar.check_wall(direction)
+
         start_time = time.time()
         log_time = 0
 
@@ -240,19 +243,27 @@ class Robot:
                     print(f"    [{t_now:.1f}s] SAFETY STOP: ahead={d_ahead*100:.1f}cm")
                 return False
 
-            # Arrived
+            # Arrived at wall
             if d_ahead is not None and d_ahead <= stop_distance + 0.01:
                 self._drive.halt()
                 if debug:
                     print(f"    [{t_now:.1f}s] ARRIVED: ahead={d_ahead*100:.1f}cm")
                 return True
 
+            # Traveled max distance (one cell)
+            if max_travel is not None and start_ahead is not None and d_ahead is not None:
+                traveled = start_ahead - d_ahead
+                if traveled >= max_travel:
+                    self._drive.halt()
+                    if debug:
+                        print(f"    [{t_now:.1f}s] MAX TRAVEL: {traveled*100:.1f}cm")
+                    return True
+
             # Forward target
             if d_ahead is not None:
                 remaining = max(d_ahead - stop_distance, 0.01)
             else:
                 remaining = 0.15  # half cell default
-            # Cap to max_travel so we don't skip cells
             if max_travel is not None:
                 remaining = min(remaining, max_travel)
             target_dx = dx_dir * remaining
