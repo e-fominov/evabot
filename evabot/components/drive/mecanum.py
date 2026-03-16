@@ -54,10 +54,10 @@ class MecanumDrive(Component):
 
     def __init__(
         self,
-        fl: int = 3,
-        fr: int = 4,
-        bl: int = 1,
-        br: int = 2,
+        fl: int = 1,
+        fr: int = 2,
+        bl: int = 3,
+        br: int = 4,
         wheel_radius: float = 0.030,  # meters (60mm mecanum wheels)
         wheel_base: float = 0.065,  # meters (65mm, front-to-back wheel centers)
         track_width: float = 0.150,  # meters (150mm, left-to-right wheel centers)
@@ -122,6 +122,12 @@ class MecanumDrive(Component):
         self._position_start_x = 0.0  # Odometry position when target was set
         self._position_start_y = 0.0
         self._position_start_theta = 0.0
+        # Absolute target in odom frame (for continuous updates)
+        self._abs_target_x = 0.0
+        self._abs_target_y = 0.0
+        self._abs_target_theta = 0.0
+        # Previous motor commands (skip if unchanged)
+        self._prev_pulses = [0, 0, 0, 0]
         self._position_control_lock = threading.RLock()
 
     def start(self):
@@ -239,13 +245,14 @@ class MecanumDrive(Component):
         self.move(vtheta=-speed)
 
     def halt(self):
-        """Stop all motion (convenience method)"""
+        """Stop all motion immediately."""
         # Cancel any active position control
         with self._position_control_lock:
             self._position_control_active = False
 
-        # Stop velocity control
-        self.move(0, 0, 0)
+        # Stop all motors with fastest deceleration
+        for motor in self._motors:
+            motor.run(0, acceleration=0)
 
     # ========== Non-blocking Position Control ==========
 
@@ -310,7 +317,6 @@ class MecanumDrive(Component):
         # Get current odometry position
         current_pose = self._robot.odom.pose
 
-        # Convert degrees to radians internally
         import math
 
         dtheta_rad = math.radians(dtheta_deg)
@@ -318,9 +324,9 @@ class MecanumDrive(Component):
         with self._position_control_lock:
             self._target_dx = dx
             self._target_dy = dy
-            self._target_dtheta = dtheta_rad  # Store as radians internally
+            self._target_dtheta = dtheta_rad
             self._target_speed = speed
-            self.acceleration = acceleration  # Update motor acceleration
+            self.acceleration = acceleration
 
             # Save starting position
             self._position_start_x = current_pose.x
@@ -665,17 +671,6 @@ class MecanumDrive(Component):
                     # If position control active, calculate and send motor position commands
                     with self._position_control_lock:
                         if self._position_control_active:
-                            # Calculate displacement traveled so far (in odometry frame)
-                            traveled_x_odom = current.x - self._position_start_x
-                            traveled_y_odom = current.y - self._position_start_y
-                            traveled_theta = current.theta - self._position_start_theta
-
-                            # Normalize angle
-                            while traveled_theta > math.pi:
-                                traveled_theta -= 2 * math.pi
-                            while traveled_theta < -math.pi:
-                                traveled_theta += 2 * math.pi
-
                             # Calculate target in odometry frame
                             cos_start = math.cos(self._position_start_theta)
                             sin_start = math.sin(self._position_start_theta)
@@ -738,47 +733,38 @@ class MecanumDrive(Component):
                                 # This allows immediate rotation response while maintaining accurate position control.
 
                                 # DEBUG: Print state every 20 cycles (every ~400ms)
-                                if not hasattr(self, "_debug_counter"):
-                                    self._debug_counter = 0
-                                self._debug_counter += 1
-
-                                if self._debug_counter % 20 == 0:
-                                    print(
-                                        f"[DEBUG] Odom: x={current.x:.3f}, y={current.y:.3f}, theta={math.degrees(current.theta):.1f}°"
-                                    )
-                                    print(
-                                        f"[DEBUG] Start: x={self._position_start_x:.3f}, y={self._position_start_y:.3f}, theta={math.degrees(self._position_start_theta):.1f}°"
-                                    )
-                                    print(
-                                        f"[DEBUG] Target (odom): x={target_x_odom:.3f}, y={target_y_odom:.3f}, theta={math.degrees(target_theta):.1f}°"
-                                    )
-                                    print(
-                                        f"[DEBUG] Remaining (odom): x={remaining_x_odom:.3f}, y={remaining_y_odom:.3f}, theta={math.degrees(remaining_theta):.1f}°"
-                                    )
-                                    print(
-                                        f"[DEBUG] Remaining (robot): dx={remaining_dx_robot:.3f}, dy={remaining_dy_robot:.3f}"
-                                    )
+                                # if not hasattr(self, "_debug_counter"):
+                                #     self._debug_counter = 0
+                                # self._debug_counter += 1
+                                #
+                                # if self._debug_counter % 20 == 0:
+                                #     print(
+                                #         f"[DEBUG] Odom: x={current.x:.3f}, y={current.y:.3f}, theta={math.degrees(current.theta):.1f}°"
+                                #     )
+                                #     print(
+                                #         f"[DEBUG] Start: x={self._position_start_x:.3f}, y={self._position_start_y:.3f}, theta={math.degrees(self._position_start_theta):.1f}°"
+                                #     )
+                                #     print(
+                                #         f"[DEBUG] Target (odom): x={target_x_odom:.3f}, y={target_y_odom:.3f}, theta={math.degrees(target_theta):.1f}°"
+                                #     )
+                                #     print(
+                                #         f"[DEBUG] Remaining (odom): x={remaining_x_odom:.3f}, y={remaining_y_odom:.3f}, theta={math.degrees(remaining_theta):.1f}°"
+                                #     )
+                                #     print(
+                                #         f"[DEBUG] Remaining (robot): dx={remaining_dx_robot:.3f}, dy={remaining_dy_robot:.3f}"
+                                #     )
 
                                 # 1. Calculate target velocities using proportional control
-                                K_linear = (
-                                    5.0  # Position gain (too high = instability!)
-                                )
-                                K_angular = (
-                                    2.0  # Angular gain (too high = runaway spinning!)
-                                )
+                                K_linear = 5.0
+                                K_angular = 1.0
 
                                 target_vx = K_linear * remaining_dx_robot
                                 target_vy = K_linear * remaining_dy_robot
                                 target_vtheta = K_angular * remaining_theta
 
-                                if self._debug_counter % 20 == 0:
-                                    print(
-                                        f"[DEBUG] Target vel: vx={target_vx:.3f}, vy={target_vy:.3f}, vtheta={math.degrees(target_vtheta):.1f}°/s"
-                                    )
-
                                 # 2. Clamp velocities to safe limits
                                 max_linear = self._target_speed
-                                max_angular = 3.0  # rad/s (~170 deg/s)
+                                max_angular = 3.0  # rad/s
 
                                 target_vx = max(-max_linear, min(max_linear, target_vx))
                                 target_vy = max(-max_linear, min(max_linear, target_vy))
@@ -786,93 +772,37 @@ class MecanumDrive(Component):
                                     -max_angular, min(max_angular, target_vtheta)
                                 )
 
-                                # 3. Convert velocities to wheel displacements for lookahead window
-                                lookahead_time = (
-                                    0.1  # 100ms lookahead (re-planned every 20ms)
-                                )
-
+                                # 3. Convert to wheel velocities (m/s at wheel surface)
                                 lx = (self.wheel_base + self.track_width) / 2
 
                                 if self.pattern == "x":
-                                    # X pattern: FL\\ FR/ BL/ BR\\
-                                    # Velocity to wheel velocity, then scale by lookahead time
-                                    dfl_wheel = (
-                                        target_vx - target_vy - target_vtheta * lx
-                                    ) * lookahead_time
-                                    dfr_wheel = (
-                                        target_vx + target_vy + target_vtheta * lx
-                                    ) * lookahead_time
-                                    dbl_wheel = (
-                                        target_vx + target_vy - target_vtheta * lx
-                                    ) * lookahead_time
-                                    dbr_wheel = (
-                                        target_vx - target_vy + target_vtheta * lx
-                                    ) * lookahead_time
-                                else:  # diamond
-                                    # Diamond pattern: FL/ FR\\ BL\\ BR/
-                                    dfl_wheel = (
-                                        target_vx + target_vy - target_vtheta * lx
-                                    ) * lookahead_time
-                                    dfr_wheel = (
-                                        target_vx - target_vy + target_vtheta * lx
-                                    ) * lookahead_time
-                                    dbl_wheel = (
-                                        target_vx - target_vy - target_vtheta * lx
-                                    ) * lookahead_time
-                                    dbr_wheel = (
-                                        target_vx + target_vy + target_vtheta * lx
-                                    ) * lookahead_time
+                                    vel_fl = target_vx - target_vy - target_vtheta * lx
+                                    vel_fr = target_vx + target_vy + target_vtheta * lx
+                                    vel_bl = target_vx + target_vy - target_vtheta * lx
+                                    vel_br = target_vx - target_vy + target_vtheta * lx
+                                else:
+                                    vel_fl = target_vx + target_vy - target_vtheta * lx
+                                    vel_fr = target_vx - target_vy + target_vtheta * lx
+                                    vel_bl = target_vx - target_vy - target_vtheta * lx
+                                    vel_br = target_vx + target_vy + target_vtheta * lx
 
-                                # 4. Convert wheel linear displacement to pulses
-                                pulses_per_meter = self.pulses_per_rev / (
-                                    2 * math.pi * self.wheel_radius
-                                )
+                                # 4. Convert wheel velocity (m/s) to RPM
+                                def vel_to_rpm(v):
+                                    omega = v / self.wheel_radius
+                                    return int(omega * 60.0 / (2.0 * math.pi))
 
-                                pulses_fl = int(dfl_wheel * pulses_per_meter)
-                                pulses_fr = int(dfr_wheel * pulses_per_meter)
-                                pulses_bl = int(dbl_wheel * pulses_per_meter)
-                                pulses_br = int(dbr_wheel * pulses_per_meter)
+                                rpm_fl = vel_to_rpm(vel_fl)
+                                rpm_fr = vel_to_rpm(vel_fr)
+                                rpm_bl = vel_to_rpm(vel_bl)
+                                rpm_br = vel_to_rpm(vel_br)
 
-                                if self._debug_counter % 20 == 0:
-                                    print(
-                                        f"[DEBUG] Wheel displacements (m): FL={dfl_wheel:.4f}, FR={dfr_wheel:.4f}, BL={dbl_wheel:.4f}, BR={dbr_wheel:.4f}"
-                                    )
-                                    print(
-                                        f"[DEBUG] Wheel pulses: FL={pulses_fl}, FR={pulses_fr}, BL={pulses_bl}, BR={pulses_br}"
-                                    )
-
-                                # 5. Calculate motor speed from target velocities (max of all wheel speeds)
-                                wheel_speeds = [
-                                    abs(target_vx - target_vy - target_vtheta * lx),
-                                    abs(target_vx + target_vy + target_vtheta * lx),
-                                    abs(target_vx + target_vy - target_vtheta * lx),
-                                    abs(target_vx - target_vy + target_vtheta * lx),
-                                ]
-                                max_wheel_speed = (
-                                    max(wheel_speeds) if wheel_speeds else 0.1
-                                )
-
-                                omega = max_wheel_speed / self.wheel_radius  # rad/s
-                                speed_rpm = int(omega * (60.0 / (2.0 * math.pi)))
-                                speed_rpm = max(
-                                    10, speed_rpm
-                                )  # Minimum 10 RPM to ensure movement
-
-                                # 6. Send non-blocking position commands to motors
-                                # Motors execute smoothly over lookahead time, then we replan
-                                # Right side motors (FR, BR) are mirrored, so negate
-                                self.fl.set_target_position_relative(
-                                    pulses_fl, speed_rpm, self.acceleration
-                                )
-                                self.fr.set_target_position_relative(
-                                    -pulses_fr, speed_rpm, self.acceleration
-                                )
-                                self.bl.set_target_position_relative(
-                                    pulses_bl, speed_rpm, self.acceleration
-                                )
-                                self.br.set_target_position_relative(
-                                    -pulses_br, speed_rpm, self.acceleration
-                                )
+                                # 5. Send continuous velocity commands
+                                # run() is smooth - motor maintains speed, no trajectory restart
+                                # FR/BR mirrored (negative)
+                                self.fl.run(rpm_fl, acceleration=self.acceleration)
+                                self.fr.run(-rpm_fr, acceleration=self.acceleration)
+                                self.bl.run(rpm_bl, acceleration=self.acceleration)
+                                self.br.run(-rpm_br, acceleration=self.acceleration)
 
                 # Save encoder values
                 self._last_encoder = encoder

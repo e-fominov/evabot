@@ -167,6 +167,7 @@ class Robot:
         acceleration: int = 50,
         timeout: float = 10.0,
         safe_distance: float = 0.09,
+        debug: bool = False,
     ):
         """
         Move toward a wall using lidar feedback.
@@ -184,6 +185,7 @@ class Robot:
             acceleration: Motor acceleration (0-255, default 50)
             timeout: Maximum time to move (seconds, default 10)
             safe_distance: Emergency stop distance (meters, default 0.09)
+            debug: Print wall readings each cycle (default False)
 
         Returns:
             True if stopped at wall, False if timeout or safety stop
@@ -191,7 +193,7 @@ class Robot:
         Usage:
             robot.move_to_wall(0)           # move forward to wall
             robot.move_to_wall(270)         # move left to wall
-            robot.move_to_wall(90, speed=0.5)  # move right, faster
+            robot.move_to_wall(90, speed=0.5, debug=True)  # debug mode
 
         Requires:
             robot.drive and robot.lidar must be set up
@@ -200,26 +202,46 @@ class Robot:
             raise RuntimeError("move_to_wall requires both drive and lidar")
 
         # Direction constants
+        dir_names = {0: "F", 90: "R", 180: "B", 270: "L"}
         dir_delta = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}
         opposite = {0: 180, 180: 0, 90: 270, 270: 90}
 
         dx_dir, dy_dir = dir_delta[direction]
         opp = opposite[direction]
 
+        # Quick pre-align if badly misaligned (>8 degrees)
+        for _ in range(20):
+            _, a, q = self._lidar.check_wall(direction)
+            if a is None or q is None or q < 0.3 or abs(a) < 8:
+                break
+            correction = max(-10.0, min(10.0, a))
+            if debug:
+                print(f"    Pre-align: {a:+.1f}° -> correction {correction:+.1f}°")
+            self._drive.set_target_position(dtheta_deg=correction, speed=0.1, acceleration=50)
+            time.sleep(0.15)
+        self._drive.halt()
+
         start_time = time.time()
+        log_time = 0
 
         while time.time() - start_time < timeout:
+            t_now = time.time() - start_time
+
             # Read ahead wall
             d_ahead, a_ahead, q_ahead = self._lidar.check_wall(direction)
 
             # Emergency stop
             if d_ahead is not None and d_ahead < safe_distance:
                 self._drive.halt()
+                if debug:
+                    print(f"    [{t_now:.1f}s] SAFETY STOP: ahead={d_ahead*100:.1f}cm")
                 return False
 
             # Arrived
             if d_ahead is not None and d_ahead <= stop_distance + 0.01:
                 self._drive.halt()
+                if debug:
+                    print(f"    [{t_now:.1f}s] ARRIVED: ahead={d_ahead*100:.1f}cm")
                 return True
 
             # Forward target
@@ -235,12 +257,18 @@ class Robot:
             if a_ahead is not None and q_ahead is not None and q_ahead > 0.5:
                 angle_samples.append(a_ahead)
 
+            debug_walls = {}
+            if debug:
+                debug_walls[direction] = (d_ahead, a_ahead)
+
             for wall_dir in [0, 90, 180, 270]:
                 if wall_dir == direction:
                     continue
                 d_w, a_w, q_w = self._lidar.check_wall(wall_dir)
                 if d_w is None:
                     continue
+                if debug:
+                    debug_walls[wall_dir] = (d_w, a_w)
                 if a_w is not None and q_w is not None and q_w > 0.5:
                     angle_samples.append(a_w)
                 if wall_dir != opp and d_w < stop_distance and q_w is not None and q_w > 0.3:
@@ -255,6 +283,23 @@ class Robot:
                 avg = sum(angle_samples) / len(angle_samples)
                 dtheta_deg = max(-15.0, min(15.0, avg))
 
+            # Debug output every 200ms
+            if debug and t_now - log_time >= 0.2:
+                log_time = t_now
+                parts = []
+                for wd in [0, 90, 180, 270]:
+                    if wd in debug_walls:
+                        d, a = debug_walls[wd]
+                        if d is None:
+                            continue
+                        s = f"{dir_names[wd]}={d*100:.0f}cm"
+                        if a is not None:
+                            s += f"/{a:+.1f}°"
+                        parts.append(s)
+                parts.append(f"theta={dtheta_deg:+.1f}°")
+                parts.append(f"target=({target_dx*100:.1f},{target_dy*100:.1f})")
+                print(f"    [{t_now:.1f}s] {' | '.join(parts)}")
+
             # Send target
             self._drive.set_target_position(
                 dx=target_dx, dy=target_dy, dtheta_deg=dtheta_deg,
@@ -264,11 +309,15 @@ class Robot:
             # Position control finished (no wall ahead, moved full distance)
             if not self._drive.is_position_control_active():
                 self._drive.halt()
+                if debug:
+                    print(f"    [{t_now:.1f}s] Position control complete")
                 return True
 
             time.sleep(0.01)
 
         self._drive.halt()
+        if debug:
+            print(f"    Timeout!")
         return False
 
     # ========== Control Loops ==========

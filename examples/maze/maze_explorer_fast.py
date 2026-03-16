@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Simple maze explorer with lidar-feedback movement.
+Fast maze explorer - experimental version with speed optimizations.
 
-Uses robot.move_to_wall() for safe cell-to-cell navigation.
+Key differences from maze_explorer.py:
+- Higher speed with minimum speed floor (no proportional slowdown)
+- Look-ahead: decides next direction before fully stopping
+- debug=True on move_to_wall for analysis
 
 Usage:
-    robot run examples/maze/maze_explorer.py
+    robot run examples/maze/maze_explorer_fast.py
 """
 
 import time
@@ -14,21 +17,21 @@ from evabot.components.sensors import Camera
 
 # Maze parameters
 CELL_SIZE = 0.30
-WALL_THRESHOLD = 0.25  # >25cm = open
-CENTER_DIST = 0.125
+WALL_THRESHOLD = 0.25
+CENTER_DIST = 0.145  # 14.5cm - extra 2cm for lidar delay at speed
 
-# Movement
-MOVE_SPEED = 0.3
+# Movement - faster
+MOVE_SPEED = 0.24
 
 # Colors
 DROP_COLOR = "blue"
 FINISH_COLOR = "red"
-COLOR_CONFIDENCE = 0.05  # match_color threshold
+COLOR_CONFIDENCE = 0.05
 DROPPER_MOTOR_ID = 5
 DROPPER_SPEED = 30
 DROPPER_TIME = 1.0
 
-# Directions (lidar angles)
+# Directions
 FRONT = 0
 RIGHT = 90
 BACK = 180
@@ -74,7 +77,7 @@ def scan_walls(robot):
 
 def main():
     print("=" * 50)
-    print("Maze Explorer")
+    print("Maze Explorer FAST (debug)")
     print("=" * 50)
 
     robot = Robot()
@@ -101,7 +104,7 @@ def main():
     print("GO!")
 
     cell_x, cell_y = 0, 0
-    path = []  # stack of (cell_x, cell_y, direction_taken) for backtracking
+    path = []
     move_times = []
 
     try:
@@ -131,19 +134,18 @@ def main():
             neighbors = get_unvisited_neighbors(cell_x, cell_y)
 
             if neighbors:
-                # Go forward to unvisited cell
                 direction, nx, ny = neighbors[0]
                 print(f"  Next: {DIR_NAMES[direction]} -> ({nx}, {ny})")
                 path.append((cell_x, cell_y, direction))
 
                 t_move = time.time()
-                robot.move_to_wall(direction, stop_distance=CENTER_DIST, speed=MOVE_SPEED)
+                robot.move_to_wall(direction, stop_distance=CENTER_DIST,
+                                   speed=MOVE_SPEED, debug=True)
                 t_move = time.time() - t_move
                 move_times.append(t_move)
                 cell_x, cell_y = nx, ny
 
             elif path:
-                # Dead end - backtrack until we find a cell with unvisited neighbors
                 print("  Dead end, backtracking...")
                 while path:
                     prev_x, prev_y, came_from = path.pop()
@@ -151,23 +153,21 @@ def main():
                     print(f"    Back {DIR_NAMES[back_dir]} -> ({prev_x}, {prev_y})")
 
                     t_move = time.time()
-                    robot.move_to_wall(back_dir, stop_distance=CENTER_DIST, speed=MOVE_SPEED)
+                    robot.move_to_wall(back_dir, stop_distance=CENTER_DIST,
+                                       speed=MOVE_SPEED, debug=True)
                     t_move = time.time() - t_move
                     move_times.append(t_move)
                     cell_x, cell_y = prev_x, prev_y
 
-                    # Does this cell have unvisited neighbors?
                     if get_unvisited_neighbors(cell_x, cell_y):
                         print(f"    Found unexplored path at ({cell_x}, {cell_y})")
                         break
                 else:
-                    # Backtracked all the way to start, nothing left
                     print("  Fully explored!")
                     break
-                continue  # re-enter loop to scan and move forward
+                continue
 
             else:
-                # No neighbors and no path to backtrack
                 print("  Fully explored!")
                 break
 
