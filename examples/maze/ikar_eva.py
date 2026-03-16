@@ -7,52 +7,52 @@ from evabot import Robot, MecanumDrive, RPLidarC1, Servo42D
 from evabot.components.sensors import Camera
 
 # мой лабиринт с ячейками 30 см
-РАССТ_СТЕНЫ = 0.25  # если стена ближе 25см - это стена
-РАССТ_СТОП = 0.145  # останавливаемся в 14.5см от стены
+WALL_DIST = 0.25  # если стена ближе 25см - это стена
+STOP_DIST = 0.145  # останавливаемся в 14.5см от стены
 
 # направления для лидара
-ПЕРЕД = 0
-ПРАВО = 90
-ЗАД = 180
-ЛЕВО = 270
+FRONT = 0
+RIGHT = 90
+BACK = 180
+LEFT = 270
 
-напротив = {ПЕРЕД: ЗАД, ЗАД: ПЕРЕД, ЛЕВО: ПРАВО, ПРАВО: ЛЕВО}
-смещение = {ПЕРЕД: (1, 0), ПРАВО: (0, -1), ЗАД: (-1, 0), ЛЕВО: (0, 1)}
-имена = {ПЕРЕД: "перед", ПРАВО: "право", ЗАД: "зад", ЛЕВО: "лево"}
+opposite = {FRONT: BACK, BACK: FRONT, LEFT: RIGHT, RIGHT: LEFT}
+delta = {FRONT: (1, 0), RIGHT: (0, -1), BACK: (-1, 0), LEFT: (0, 1)}
+names = {FRONT: "перед", RIGHT: "право", BACK: "зад", LEFT: "лево"}
 
 # сначала налево, потом назад, потом направо, потом вперед
-приоритет = [ЛЕВО, ЗАД, ПРАВО, ПЕРЕД]
+priority = [LEFT, BACK, RIGHT, FRONT]
 
 # карта - где был и где стены
-посещено = set()
-стены = {}
+visited = set()
+walls = {}
 
 
-def добавить_стену(x, y, d, есть_стена):
-    стены[(x, y, d)] = есть_стена
+def add_wall(x, y, d, has_wall):
+    walls[(x, y, d)] = has_wall
     # сосед видит эту же стену с другой стороны
-    dx, dy = смещение[d]
-    стены[(x + dx, y + dy, напротив[d])] = есть_стена
+    dx, dy = delta[d]
+    walls[(x + dx, y + dy, opposite[d])] = has_wall
 
 
-def осмотреться(robot):
+def check_walls(robot):
     """смотрим вокруг - где стены"""
-    результат = {}
-    for d in [ПЕРЕД, ПРАВО, ЗАД, ЛЕВО]:
-        расст, _, качество = robot.lidar.check_wall(d)
-        if расст is not None and качество is not None and качество > 0.3 and расст < РАССТ_СТЕНЫ:
-            результат[d] = True
+    result = {}
+    for d in [FRONT, RIGHT, BACK, LEFT]:
+        dist, _, quality = robot.lidar.check_wall(d)
+        if dist is not None and quality is not None and quality > 0.3 and dist < WALL_DIST:
+            result[d] = True
         else:
-            результат[d] = False
-    return результат
+            result[d] = False
+    return result
 
 
-def куда_дальше(x, y):
-    """ищем соседа где еще не были"""
-    for d in приоритет:
-        dx, dy = смещение[d]
+def find_next(x, y):
+    """ищем соседа где ещё не были"""
+    for d in priority:
+        dx, dy = delta[d]
         nx, ny = x + dx, y + dy
-        if стены.get((x, y, d)) == False and (nx, ny) not in посещено:
+        if walls.get((x, y, d)) == False and (nx, ny) not in visited:
             return d, nx, ny
     return None
 
@@ -63,15 +63,15 @@ robot.drive = MecanumDrive()
 robot.lidar = RPLidarC1(max_range=1.0)
 robot.start()
 
-камера = Camera()
-камера.start()
+camera = Camera()
+camera.start()
 
 # мотор 5 - это сбрасыватель шарика
-сбрасыватель = Servo42D(5)
-сбрасыватель.start()
+dropper = Servo42D(5)
+dropper.start()
 
-шарик_сброшен = False
-финиш = False
+dropped = False
+finished = False
 
 time.sleep(3)
 print("3...")
@@ -84,58 +84,58 @@ print("ПОЕХАЛИ!!!")
 
 # начинаем в ячейке 0,0
 x, y = 0, 0
-путь = []  # запоминаем откуда пришли чтобы вернуться
+path = []  # запоминаем откуда пришли чтобы вернуться
 
 try:
-    for шаг in range(200):
-        print(f"\n=== ячейка ({x},{y}) шаг {шаг+1} ===")
+    for step in range(200):
+        print(f"\n=== ячейка ({x},{y}) шаг {step+1} ===")
 
         # осматриваемся
-        посещено.add((x, y))
-        с = осмотреться(robot)
-        for d in [ПЕРЕД, ПРАВО, ЗАД, ЛЕВО]:
-            добавить_стену(x, y, d, с[d])
-            if с[d]:
-                print(f"  {имена[d]}: стена")
+        visited.add((x, y))
+        w = check_walls(robot)
+        for d in [FRONT, RIGHT, BACK, LEFT]:
+            add_wall(x, y, d, w[d])
+            if w[d]:
+                print(f"  {names[d]}: стена")
             else:
-                print(f"  {имена[d]}: проход!")
+                print(f"  {names[d]}: проход!")
 
         # куда ехать?
-        след = куда_дальше(x, y)
+        nxt = find_next(x, y)
 
-        if след:
+        if nxt:
             # едем в новую ячейку
-            d, nx, ny = след
-            print(f"  еду {имена[d]} в ({nx},{ny})")
-            путь.append((x, y, d))
-            robot.move_to_wall(d, stop_distance=РАССТ_СТОП, speed=0.2)
+            d, nx, ny = nxt
+            print(f"  еду {names[d]} в ({nx},{ny})")
+            path.append((x, y, d))
+            robot.move_to_wall(d, stop_distance=STOP_DIST, speed=0.2)
             x, y = nx, ny
 
-        elif путь:
+        elif path:
             # тупик! едем назад
             print(f"  тупик! возвращаюсь...")
-            while путь:
-                пх, пу, откуда = путь.pop()
-                назад = напротив[откуда]
-                print(f"  назад {имена[назад]} в ({пх},{пу})")
-                robot.move_to_wall(назад, stop_distance=РАССТ_СТОП, speed=0.2)
-                x, y = пх, пу
+            while path:
+                px, py, came_from = path.pop()
+                back = opposite[came_from]
+                print(f"  назад {names[back]} в ({px},{py})")
+                robot.move_to_wall(back, stop_distance=STOP_DIST, speed=0.2)
+                x, y = px, py
                 time.sleep(0.2)
 
                 # может нашли красное?
-                if камера.match_color("red") > 0.05:
+                if camera.match_color("red") > 0.05:
                     print("КРАСНОЕ!!! ФИНИШ!!!")
-                    финиш = True
+                    finished = True
                     break
 
                 # может есть куда поехать
-                if куда_дальше(x, y):
-                    print(f"  нашел новый путь!")
+                if find_next(x, y):
+                    print(f"  нашёл новый путь!")
                     break
             else:
                 print("всё объехал!")
                 break
-            if финиш:
+            if finished:
                 break
             continue
 
@@ -145,27 +145,27 @@ try:
 
         # проверяем цвета после каждого хода
         # красный = финиш
-        if камера.match_color("red") > 0.05:
+        if camera.match_color("red") > 0.05:
             print("КРАСНОЕ!!! ФИНИШ!!!")
             break
 
         # синий = бросаем шарик
-        if not шарик_сброшен:
-            if камера.match_color("blue") > 0.05:
+        if not dropped:
+            if camera.match_color("blue") > 0.05:
                 print("СИНЕЕ! бросаю шарик...")
-                сбрасыватель.run(30)
+                dropper.run(30)
                 time.sleep(1)
-                сбрасыватель.run(0)
-                шарик_сброшен = True
+                dropper.run(0)
+                dropped = True
                 print("шарик сброшен!")
 
-    print(f"\nготово! объехал {len(посещено)} ячеек")
+    print(f"\nготово! объехал {len(visited)} ячеек")
 
 except KeyboardInterrupt:
     print("\nстоп")
 
 robot.drive.halt()
-сбрасыватель.stop()
-камера.stop()
+dropper.stop()
+camera.stop()
 time.sleep(0.3)
 robot.stop()
