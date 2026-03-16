@@ -21,7 +21,7 @@ WALL_THRESHOLD = 0.25
 CENTER_DIST = 0.145  # 14.5cm - extra 2cm for lidar delay at speed
 
 # Movement - faster
-MOVE_SPEED = 0.24
+MOVE_SPEED = 0.2
 
 # Colors
 DROP_COLOR = "blue"
