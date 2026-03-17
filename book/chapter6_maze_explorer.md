@@ -319,7 +319,7 @@ for cell_num in range(2):
         if walls.get((x, y, direction)) is False and (nx, ny) not in visited:
             dir_name = {0: 'Front', 90: 'Right', 180: 'Back', 270: 'Left'}[direction]
             print(f"  Moving {dir_name} to ({nx}, {ny})")
-            robot.move_to_wall(direction)
+            robot.move_to_wall(direction, max_travel=0.30)
             x, y = nx, ny
             break
 
@@ -398,7 +398,7 @@ for step in range(100):  # safety limit
     print(f"  Moving {DIR_NAMES[direction]} -> ({nx}, {ny})")
 
     # 3. Move!
-    robot.move_to_wall(direction)
+    robot.move_to_wall(direction, max_travel=0.30)
     x, y = nx, ny
 
 print(f"\nExplored {len(visited)} cells!")
@@ -526,7 +526,7 @@ while True:
     # Scan walls in current cell
     # Record walls in map
     # Find unvisited neighbor
-    # Move there with robot.move_to_wall(direction)
+    # Move there with robot.move_to_wall(direction, max_travel=0.30)
 ```
 
 ---

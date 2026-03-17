@@ -361,7 +361,7 @@ for step in range(200):
         # Вперёд: едем в новую ячейку, добавляем в стек
         direction, nx, ny = neighbors[0]
         path.append((cell_x, cell_y, direction))
-        robot.move_to_wall(direction)
+        robot.move_to_wall(direction, max_travel=0.30)
         cell_x, cell_y = nx, ny
 
     elif path:
@@ -370,7 +370,7 @@ for step in range(200):
         while path:
             prev_x, prev_y, came_from = path.pop()
             back_dir = OPPOSITE[came_from]
-            robot.move_to_wall(back_dir)
+            robot.move_to_wall(back_dir, max_travel=0.30)
             cell_x, cell_y = prev_x, prev_y
 
             if get_unvisited_neighbors(cell_x, cell_y):
@@ -458,14 +458,14 @@ for step in range(200):
         direction, nx, ny = neighbors[0]
         print(f"  Двигаюсь {DIR_NAMES[direction]} -> ({nx},{ny})")
         path.append((x, y, direction))
-        robot.move_to_wall(direction)
+        robot.move_to_wall(direction, max_travel=0.30)
         x, y = nx, ny
 
     elif path:
         print("  Возвращаюсь...")
         while path:
             px, py, came_from = path.pop()
-            robot.move_to_wall(OPPOSITE[came_from])
+            robot.move_to_wall(OPPOSITE[came_from], max_travel=0.30)
             x, y = px, py
             # Есть ли неисследованные соседи?
             for d in [270, 180, 90, 0]:
@@ -538,10 +538,10 @@ print(f"Возвратов: {backtrack_count}")
 
 ```python
 # Движение вперёд:
-robot.move_to_wall(direction, speed=0.3)
+robot.move_to_wall(direction, speed=0.3, max_travel=0.30)
 
 # Возврат:
-robot.move_to_wall(OPPOSITE[came_from], speed=0.5)
+robot.move_to_wall(OPPOSITE[came_from], speed=0.5, max_travel=0.30)
 ```
 
 Робот уже посетил эти ячейки, поэтому знает, что сюрпризов не будет. Быстрый возврат означает меньше потраченного времени в тупиках!

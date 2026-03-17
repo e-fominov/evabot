@@ -319,7 +319,7 @@ for cell_num in range(2):
         if walls.get((x, y, direction)) is False and (nx, ny) not in visited:
             dir_name = {0: 'Вперёд', 90: 'Вправо', 180: 'Назад', 270: 'Влево'}[direction]
             print(f"  Двигаемся {dir_name} в ({nx}, {ny})")
-            robot.move_to_wall(direction)
+            robot.move_to_wall(direction, max_travel=0.30)
             x, y = nx, ny
             break
 
@@ -398,7 +398,7 @@ for step in range(100):  # ограничение безопасности
     print(f"  Двигаемся {DIR_NAMES[direction]} -> ({nx}, {ny})")
 
     # 3. Поехали!
-    robot.move_to_wall(direction)
+    robot.move_to_wall(direction, max_travel=0.30)
     x, y = nx, ny
 
 print(f"\nИсследовано {len(visited)} ячеек!")
@@ -526,7 +526,7 @@ while True:
     # Сканируем стены текущей ячейки
     # Записываем стены в карту
     # Находим непосещённого соседа
-    # Перемещаемся туда с robot.move_to_wall(direction)
+    # Перемещаемся туда с robot.move_to_wall(direction, max_travel=0.30)
 ```
 
 ---
