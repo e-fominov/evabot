@@ -1,0 +1,7 @@
+@page {
+    @bottom-center {
+        content: counter(page);
+        font-size: 10pt;
+        color: #666;
+    }
+}
