@@ -9,7 +9,16 @@ Questions are grouped by topic. Each question has a short expected answer. Stude
 ## Robot Construction
 
 **Q: What are the main parts of the robot?**
-A: Four mecanum wheels with stepper motors, a lidar scanner on top, a camera looking at the floor, a Raspberry Pi computer, and a CAN bus connecting the motors.
+A: A 3D-printed frame (base plate, motor brackets, lidar mount), four mecanum wheels with stepper motors, a lidar scanner on top, a camera looking at the floor, a Raspberry Pi computer, a Li-ion battery, and a CAN bus connecting the motors.
+
+**Q: What are the structural parts of the robot frame?**
+A: The base plate (~15x15 cm) with mounting holes, two pairs of dual-motor brackets with reinforcements, and a Z-shaped lidar mount plate with a spacer that raises the lidar above the robot body.
+
+**Q: How are the parts connected together?**
+A: All 3D-printed parts are connected with bolts and nuts through mounting holes. The motors bolt into the brackets, the brackets bolt to the base plate, and the lidar mount bolts on top.
+
+**Q: Why do the motor brackets have reinforcements?**
+A: 3D-printed plastic is strong in some directions but can crack along the print layers. Reinforcements (extra walls or ribs) make the brackets stiff enough to hold the motors without flexing during movement. Without them, the brackets could bend or break under the forces from the wheels.
 
 **Q: Why do we use mecanum wheels instead of regular wheels?**
 A: Mecanum wheels have angled rollers that let the robot move sideways (strafe) without turning. Regular wheels can only go forward and backward. This means our robot can move in any direction — forward, sideways, diagonal — which is very useful in a maze.
@@ -17,14 +26,64 @@ A: Mecanum wheels have angled rollers that let the robot move sideways (strafe) 
 **Q: What does the Raspberry Pi do?**
 A: It's the robot's brain. It runs our Python programs, reads data from the lidar and camera, and sends commands to the motors.
 
+**Q: What does the dropper motor do?**
+A: It's a fifth motor that controls a mechanism to release a payload (like a ball). When we spin it, the mechanism opens and drops the object.
+
+---
+
+## 3D Design and Printing
+
+**Q: What software is used to design the robot parts?**
+A: Fusion 360 — a 3D CAD (Computer-Aided Design) program. You draw shapes on a flat sketch, then extrude them into 3D objects. You can also add holes, chamfers, fillets, and combine parts.
+
+**Q: What is 3D printing and how does it work?**
+A: A 3D printer builds objects layer by layer from melted plastic filament. It's like drawing with a hot glue gun, but very precisely, one thin layer at a time. Hundreds of layers stack up to make a solid part.
+
+**Q: Why is 3D printing good for building robots?**
+A: You can design exactly the part you need and print it in a few hours. If it doesn't fit, you change the design and print again. No need for a factory or special tools. It's perfect for custom one-off parts like motor brackets that fit specific motors and wheels.
+
+**Q: What is a sketch in Fusion 360?**
+A: A flat 2D drawing — like drawing on paper. You draw lines, circles, and rectangles with exact dimensions. The sketch becomes the base for a 3D shape when you extrude it (pull it upward into 3D).
+
+**Q: What does "extrude" mean in 3D modeling?**
+A: Taking a 2D sketch and pushing it into the third dimension — like pressing a cookie cutter through clay. A circle becomes a cylinder, a rectangle becomes a box. You set the height and get a solid 3D shape.
+
+**Q: Why do we add mounting holes to parts?**
+A: So we can bolt parts together. Holes must be the right size for the bolts we're using. They need to be in the right positions so parts line up. Mounting holes make the robot easy to assemble and take apart for repairs.
+
+**Q: What should you think about when designing parts for 3D printing?**
+A: Print orientation matters — parts are strongest along the layers, weakest between layers. Overhangs need support. Walls shouldn't be too thin or they'll be fragile. Holes might print slightly smaller than designed. And the part needs to fit on the print bed.
+
+**Q: What is a spacer and why does the lidar mount use one?**
+A: A spacer is a small piece that creates a gap between two parts. The lidar mount uses a spacer to raise the lidar above the robot body so it has a clear 360-degree view without the robot's own parts blocking the laser beam.
+
+---
+
+## Electronics and Wiring
+
+**Q: What kind of battery does the robot use?**
+A: A 3S2P Li-ion battery pack — that means 3 cells in series (for voltage: 3 × 4.2V = 12.6V fully charged) and 2 cells in parallel (for capacity: double the runtime). It provides enough power for the motors, Raspberry Pi, lidar, and camera.
+
+**Q: What does 3S2P mean?**
+A: 3S means 3 cells in Series — connected end-to-end to add up their voltages (3 × 3.7V = 11.1V nominal, 12.6V fully charged). 2P means 2 cells in Parallel — connected side by side to double the capacity (runtime). So it's 6 cells total arranged as 3 pairs.
+
 **Q: How are the motors connected to the computer?**
 A: Through a CAN bus — a special communication wire that connects all four wheel motors and the dropper motor in a chain. Each motor has a unique number (address) so we can talk to them individually.
 
 **Q: What is CAN bus?**
-A: CAN bus is an industrial communication standard used in cars and factories. It lets many devices share one wire. It's reliable even in noisy environments. All our motors connect to the same two wires and each has its own address.
+A: CAN bus is an industrial communication standard used in cars and factories. It uses just two wires shared by all devices. Each device has a unique address. It's reliable even in noisy environments — that's why cars use it for safety-critical systems like brakes and engine control.
 
-**Q: What does the dropper motor do?**
-A: It's a fifth motor that controls a mechanism to release a payload (like a ball). When we spin it, the mechanism opens and drops the object.
+**Q: How are the camera and lidar connected?**
+A: Both connect to the Raspberry Pi through USB cables. USB provides both power and data transfer. The lidar sends distance measurements and the camera sends images through these USB connections.
+
+**Q: What is soldering and why is it used?**
+A: Soldering is joining wires with melted metal (solder) to make a permanent electrical connection. We solder power wires and signal wires where we need a reliable connection that won't come loose from vibration during driving.
+
+**Q: Why are some connections soldered and others use screws?**
+A: Soldering is permanent and very reliable — good for connections that never need to change, like power wires. Screw terminals and connectors are good for connections you might need to disconnect — like motors you might replace, or for debugging. Each method has its place.
+
+**Q: What happens if the battery voltage drops too low?**
+A: The motors get weaker and may not move properly. The Raspberry Pi might shut down unexpectedly, which could corrupt the SD card. Li-ion batteries can be damaged if discharged too low. That's why battery monitoring is important — you should stop the robot before the battery gets too low.
 
 ---
 
