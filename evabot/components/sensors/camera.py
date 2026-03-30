@@ -1,216 +1,191 @@
 """
-Orbbec 3D Camera sensor component.
-Provides easy access to RGB and Depth camera data for robots.
+Camera sensor component with color detection.
+
+Uses OpenCV to capture from a V4L2 camera (USB webcam, Orbbec RGB, etc.)
+and provides color sensing within a configurable ROI.
 """
 
 import logging
+import threading
+import time
 from typing import Optional, Tuple
-import numpy as np
-from evabot.components.base import Component
-from evabot.hardware import CameraDevice
 
+import cv2
+import numpy as np
+
+from evabot.components.base import Component
 
 logger = logging.getLogger(__name__)
 
 
-class OrbbecCamera(Component):
+# Named color definitions in HSV space: (lower_bound, upper_bound)
+# H: 0-179, S: 0-255, V: 0-255
+COLOR_RANGES = {
+    "red":    [((0, 80, 80), (10, 255, 255)),
+               ((170, 80, 80), (179, 255, 255))],
+    "orange": [((11, 80, 80), (25, 255, 255))],
+    "yellow": [((26, 80, 80), (35, 255, 255))],
+    "green":  [((36, 80, 80), (85, 255, 255))],
+    "cyan":   [((86, 80, 80), (100, 255, 255))],
+    "blue":   [((101, 80, 80), (130, 255, 255))],
+    "purple": [((131, 80, 80), (155, 255, 255))],
+    "pink":   [((156, 80, 80), (169, 255, 255))],
+    "white":  [((0, 0, 180), (179, 50, 255))],
+    "black":  [((0, 0, 0), (179, 80, 50))],
+}
+
+
+class Camera(Component):
     """
-    Orbbec 3D Camera component (RGB + Depth).
+    Camera with color sensing.
 
-    Provides easy access to camera frames:
-    - RGB color image
-    - Depth map
-    - Distance at specific pixel
-    - Works standalone or attached to Robot
+    Captures frames from a V4L2 camera device and provides color
+    detection within a configurable region of interest (ROI).
 
-    Example (standalone):
-        >>> camera = OrbbecCamera()
+    Example:
+        >>> camera = Camera()
         >>> camera.start()
-        >>> rgb = camera.image
-        >>> depth = camera.depth
+        >>> print(camera.get_color())       # e.g. (120, 85, 200)
+        >>> print(camera.match_color("blue"))  # e.g. 0.82
         >>> camera.stop()
-
-    Example (with robot):
-        >>> robot = Robot()
-        >>> robot.camera = OrbbecCamera()
-        >>> robot.start()
-        >>> print(f"RGB shape: {robot.camera.image.shape}")
-        >>> distance = robot.camera.depth_at(320, 240)
     """
 
-    def __init__(self, device: Optional[CameraDevice] = None,
-                 device_id: int = 0,
-                 rgb_width: int = 640, rgb_height: int = 480,
-                 depth_width: int = 640, depth_height: int = 480,
-                 fps: int = 30):
+    def __init__(self, device: int = 0,
+                 width: int = 640, height: int = 480,
+                 fps: int = 15,
+                 roi_center_pct: float = 0.20):
         """
-        Initialize Orbbec camera component.
-
         Args:
-            device: Optional CameraDevice instance (uses singleton if None)
-            device_id: Camera device index (default 0)
-            rgb_width: RGB frame width (default 640)
-            rgb_height: RGB frame height (default 480)
-            depth_width: Depth frame width (default 640)
-            depth_height: Depth frame height (default 480)
-            fps: Frame rate (default 30)
+            device: Video device index (default 0 = /dev/video0)
+            width: Capture width
+            height: Capture height
+            fps: Capture frame rate
+            roi_center_pct: ROI size as fraction of frame (0.0-1.0).
+                           0.20 means center 20% of width and height.
         """
         super().__init__()
-
-        # Get or use camera device (singleton)
-        if device is None:
-            self._device = CameraDevice.get_default(device_id=device_id)
-        else:
-            self._device = device
-
-        # Stream configuration
-        self._rgb_width = rgb_width
-        self._rgb_height = rgb_height
-        self._depth_width = depth_width
-        self._depth_height = depth_height
+        self._device_index = device
+        self._width = width
+        self._height = height
         self._fps = fps
+        self._roi_center_pct = roi_center_pct
 
-        logger.info("OrbbecCamera component created")
+        self._cap = None
+        self._frame = None
+        self._lock = threading.Lock()
 
     def start(self):
-        """Start camera capture."""
-        logger.info("Starting OrbbecCamera...")
-        self._device.start(
-            rgb_width=self._rgb_width,
-            rgb_height=self._rgb_height,
-            depth_width=self._depth_width,
-            depth_height=self._depth_height,
-            fps=self._fps
-        )
+        """Open camera and start background capture thread."""
+        self._cap = cv2.VideoCapture(self._device_index)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+
+        if not self._cap.isOpened():
+            raise RuntimeError(f"Cannot open camera /dev/video{self._device_index}")
+
         self._running = True
-        logger.info("OrbbecCamera started")
+        self._thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._thread.start()
+
+        # Wait for first frame (up to 3s)
+        deadline = time.monotonic() + 3.0
+        while self._frame is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        logger.info("Camera started on /dev/video%d", self._device_index)
 
     def stop(self):
-        """Stop camera capture."""
-        logger.info("Stopping OrbbecCamera...")
+        """Stop capture and release camera."""
         self._running = False
-        # Note: Don't stop the device - other components might be using it
-        # The device will be stopped by cleanup_all() on exit
-        logger.info("OrbbecCamera stopped")
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        if self._cap:
+            self._cap.release()
+            self._cap = None
+        logger.info("Camera stopped")
+
+    def _capture_loop(self):
+        while self._running:
+            ret, frame = self._cap.read()
+            if ret:
+                with self._lock:
+                    self._frame = frame
+            time.sleep(1.0 / self._fps)
+
+    # -- ROI --
+
+    def set_roi(self, center_pct: float):
+        """Set ROI as percentage of center frame (0.0-1.0)."""
+        self._roi_center_pct = max(0.01, min(1.0, center_pct))
+
+    def _get_roi(self, frame: np.ndarray) -> np.ndarray:
+        """Extract the center ROI from a frame."""
+        h, w = frame.shape[:2]
+        rw = int(w * self._roi_center_pct / 2)
+        rh = int(h * self._roi_center_pct / 2)
+        cx, cy = w // 2, h // 2
+        return frame[cy - rh:cy + rh, cx - rw:cx + rw]
+
+    # -- Public API --
 
     @property
     def image(self) -> Optional[np.ndarray]:
+        """Get latest full frame as RGB numpy array, or None."""
+        with self._lock:
+            if self._frame is None:
+                return None
+            return cv2.cvtColor(self._frame, cv2.COLOR_BGR2RGB)
+
+    def get_color(self) -> Optional[Tuple[int, int, int]]:
         """
-        Get latest RGB image.
+        Get average color in the ROI as (H, S, V).
 
         Returns:
-            RGB image as numpy array (H, W, 3) with dtype uint8,
-            or None if no frame available
-
-        Example:
-            >>> rgb = camera.image
-            >>> if rgb is not None:
-            >>>     cv2.imshow('Camera', rgb)
+            Tuple of (hue 0-179, saturation 0-255, value 0-255),
+            or None if no frame available.
         """
-        return self._device.get_latest_rgb()
+        with self._lock:
+            frame = self._frame
 
-    @property
-    def depth(self) -> Optional[np.ndarray]:
-        """
-        Get latest depth map.
-
-        Returns:
-            Depth image as numpy array (H, W) with dtype uint16,
-            values in millimeters, or None if no frame available
-
-        Example:
-            >>> depth = camera.depth
-            >>> if depth is not None:
-            >>>     # Normalize for visualization
-            >>>     depth_viz = (depth / depth.max() * 255).astype(np.uint8)
-            >>>     cv2.imshow('Depth', depth_viz)
-        """
-        return self._device.get_latest_depth()
-
-    @property
-    def depth_meters(self) -> Optional[np.ndarray]:
-        """
-        Get latest depth map in meters (instead of millimeters).
-
-        Returns:
-            Depth image as numpy array (H, W) with dtype float32,
-            values in meters, or None if no frame available
-
-        Example:
-            >>> depth_m = camera.depth_meters
-            >>> if depth_m is not None:
-            >>>     print(f"Range: {depth_m.min():.2f}m to {depth_m.max():.2f}m")
-        """
-        depth_mm = self._device.get_latest_depth()
-        if depth_mm is None:
+        if frame is None:
             return None
-        return (depth_mm / 1000.0).astype(np.float32)
 
-    def depth_at(self, x: int, y: int) -> Optional[float]:
+        roi = self._get_roi(frame)
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        avg = hsv.mean(axis=(0, 1))
+        return (int(avg[0]), int(avg[1]), int(avg[2]))
+
+    def match_color(self, color_name: str) -> float:
         """
-        Get depth at specific pixel (in meters).
+        Compare ROI color against a named color.
 
         Args:
-            x: Pixel x coordinate (0 = left)
-            y: Pixel y coordinate (0 = top)
+            color_name: One of "red", "orange", "yellow", "green",
+                       "cyan", "blue", "purple", "pink", "white", "black"
 
         Returns:
-            Distance in meters, or None if no depth data or out of bounds
-
-        Example:
-            >>> # Get distance at center of image
-            >>> distance = camera.depth_at(320, 240)
-            >>> if distance is not None:
-            >>>     print(f"Object at center is {distance:.2f}m away")
+            Confidence score 0.0-1.0 (fraction of ROI pixels matching).
         """
-        depth_mm = self._device.get_latest_depth()
-        if depth_mm is None:
-            return None
+        color_name = color_name.lower()
+        if color_name not in COLOR_RANGES:
+            raise ValueError(
+                f"Unknown color '{color_name}'. "
+                f"Known: {', '.join(sorted(COLOR_RANGES))}"
+            )
 
-        # Check bounds
-        height, width = depth_mm.shape
-        if x < 0 or x >= width or y < 0 or y >= height:
-            logger.warning(f"Pixel ({x}, {y}) out of bounds ({width}x{height})")
-            return None
+        with self._lock:
+            frame = self._frame
 
-        # Get depth value (millimeters → meters)
-        depth_value_mm = depth_mm[y, x]
-        if depth_value_mm == 0:
-            return None  # No depth reading at this pixel
+        if frame is None:
+            return 0.0
 
-        return depth_value_mm / 1000.0
+        roi = self._get_roi(frame)
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-    def get_frames(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        Get both RGB and depth frames atomically.
+        # Build combined mask for all ranges of this color
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        for lower, upper in COLOR_RANGES[color_name]:
+            mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
 
-        Returns:
-            Tuple of (rgb_image, depth_image), either may be None
-
-        Example:
-            >>> rgb, depth = camera.get_frames()
-            >>> if rgb is not None and depth is not None:
-            >>>     # Process RGB and depth together
-            >>>     aligned_data = process_rgbd(rgb, depth)
-        """
-        return self._device.get_latest_frames()
-
-    @property
-    def is_connected(self) -> bool:
-        """Check if camera is connected and running."""
-        return self._device.is_connected
-
-    @property
-    def resolution_rgb(self) -> Tuple[int, int]:
-        """Get RGB resolution (width, height)."""
-        return (self._rgb_width, self._rgb_height)
-
-    @property
-    def resolution_depth(self) -> Tuple[int, int]:
-        """Get depth resolution (width, height)."""
-        return (self._depth_width, self._depth_height)
-
-    @property
-    def frame_rate(self) -> int:
-        """Get configured frame rate."""
-        return self._fps
+        return float(mask.sum() / 255) / mask.size

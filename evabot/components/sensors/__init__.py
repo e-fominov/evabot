@@ -4,9 +4,15 @@ Sensor components for robots.
 """
 
 from .lidar import RPLidarC1
-# from .camera import OrbbecCamera  # Temporarily disabled
 
 __all__ = [
     "RPLidarC1",
-    # "OrbbecCamera",  # Temporarily disabled
+    "Camera",
 ]
+
+
+def __getattr__(name):
+    if name == "Camera":
+        from .camera import Camera
+        return Camera
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
